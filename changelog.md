@@ -93,3 +93,15 @@
 - scripts/health-check.sh — health check polling + auto-restart
 - scripts/featly-logrotate.conf — лог-ротация
 - README.md — инструкции по деплою
+
+## [7.0.0] — 2026-08-05
+
+### Фаза 7: Админка
+- React + Vite + TailwindCSS
+- Страница заказов (таблица + фильтры по статусу)
+- Страница инвентаря (CRUD)
+- Страница ботов (статус, pending trades)
+- Страница статистики (активные/выполненные/отменённые)
+- API клиент для бэкенда
+- Dockerfile + nginx.conf
+- Добавлен в docker-compose (порт 3000)

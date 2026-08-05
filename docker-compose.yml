@@ -32,6 +32,15 @@ services:
     volumes:
       - uploads:/app/uploads
 
+  admin:
+    build:
+      context: .
+      dockerfile: admin/Dockerfile
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
 volumes:
   pgdata:
   uploads:
