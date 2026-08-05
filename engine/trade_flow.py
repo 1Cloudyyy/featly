@@ -85,8 +85,9 @@ class TradeFlow:
     # ─── Step 1: Detect trade request ─────────────────────────────
 
     async def _scan_for_trade_request(self) -> None:
-        """Scan screen for incoming trade request notification."""
+        """Step 1: Scan for incoming trade request notification."""
         screenshot = capture_screen()
+        regions = self.config.regions
 
         found, center = detect_template(
             screenshot,
@@ -98,9 +99,35 @@ class TradeFlow:
             return
 
         logger.info("Trade request detected!")
-        self.state = TradeState.DETECTED
 
-        # Click Accept on trade request popup
+        # OCR the buyer's nickname BEFORE clicking anything
+        buyer_nick = ocr.read_nickname_from_trade(
+            screenshot, region=regions.trade_request
+        )
+
+        if not buyer_nick:
+            # Try full screen OCR as fallback
+            buyer_nick = ocr.read_nickname_from_trade(screenshot)
+
+        if not buyer_nick:
+            logger.warning("Could not read buyer nickname — ignoring trade request")
+            return
+
+        logger.info(f"Trade request from: {buyer_nick}")
+
+        # Check waitlist
+        trade_data = waitlist_manager.find_by_buyer(buyer_nick)
+        if not trade_data:
+            logger.info(f"Buyer {buyer_nick} not in waitlist — declining")
+            # Click Decline
+            await self._decline_trade()
+            return
+
+        # Buyer is in waitlist — accept
+        self.state = TradeState.DETECTED
+        self._current_trade = trade_data
+        logger.info(f"Buyer {buyer_nick} in waitlist — accepting trade")
+
         if center:
             await async_click(center[0], center[1])
             logger.debug(f"Clicked trade request Accept at {center}")
