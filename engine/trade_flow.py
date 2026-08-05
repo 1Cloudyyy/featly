@@ -1,11 +1,14 @@
 """Trade flow — main automation logic for MM2 trades.
 
 Real MM2 trade flow:
-1. Trade request notification → click Accept
-2. Trade window opens → search item → click to add to YOUR OFFER
-3. Click gray ACCEPT → wait for countdown (4 sec)
-4. Click green ACCEPT → "ARE YOU SURE?" dialog → click Yes
-5. "YOU HAVE ACCEPTED" → proof screenshot
+1. Detect trade request notification
+2. Wait for trade window (instant)
+3. Search item in Search box
+4. Click item(s) to add to YOUR OFFER
+5. Wait for countdown 6-7 sec ("Please wait (X) before accepting")
+6. Click ACCEPT
+7. Click "ARE YOU SURE?"
+8. Other side accepts → DONE
 """
 
 from __future__ import annotations
@@ -31,14 +34,14 @@ from engine.waitlist_manager import waitlist_manager
 
 class TradeState:
     IDLE = "idle"
-    ACCEPTING_REQUEST = "accepting_request"
+    DETECTED = "detected"
     WAITING_WINDOW = "waiting_window"
-    SEARCHING_ITEM = "searching_item"
-    ADDING_TO_OFFER = "adding_to_offer"
-    CONFIRMING_GRAY = "confirming_gray"
+    SEARCHING = "searching"
+    ADDING_ITEMS = "adding_items"
     WAITING_COUNTDOWN = "waiting_countdown"
-    CONFIRMING_GREEN = "confirming_green"
+    CLICKING_ACCEPT = "clicking_accept"
     CONFIRMING_YES = "confirming_yes"
+    WAITING_OTHER_SIDE = "waiting_other_side"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -79,10 +82,11 @@ class TradeFlow:
                 self.state = TradeState.IDLE
                 await asyncio.sleep(5)
 
+    # ─── Step 1: Detect trade request ─────────────────────────────
+
     async def _scan_for_trade_request(self) -> None:
-        """Step 1: Scan for incoming trade request notification."""
+        """Scan screen for incoming trade request notification."""
         screenshot = capture_screen()
-        regions = self.config.regions
 
         found, center = detect_template(
             screenshot,
@@ -94,126 +98,130 @@ class TradeFlow:
             return
 
         logger.info("Trade request detected!")
-        self.state = TradeState.ACCEPTING_REQUEST
+        self.state = TradeState.DETECTED
 
         # Click Accept on trade request popup
         if center:
             await async_click(center[0], center[1])
             logger.debug(f"Clicked trade request Accept at {center}")
-        else:
-            # Fallback: click configured region
-            await async_click(*regions.accept_button[:2])
 
-        await asyncio.sleep(2.0)
-
-        # Now wait for trade window to open
+        await asyncio.sleep(1.0)
         await self._wait_for_trade_window()
 
-    async def _wait_for_trade_window(self) -> None:
-        """Step 2: Wait for trade window to appear."""
-        self.state = TradeState.WAITING_WINDOW
-        logger.info("Waiting for trade window...")
+    # ─── Step 2: Wait for trade window ────────────────────────────
 
-        # Wait for search box to appear (indicates trade window is open)
-        found, _ = wait_for_template(
-            capture_screen,
-            "search_box.png",
-            timeout=10.0,
-            interval=0.5,
-        )
+    async def _wait_for_trade_window(self) -> None:
+        """Wait for trade window to open (almost instant)."""
+        self.state = TradeState.WAITING_WINDOW
+
+        # Brief wait — window opens fast
+        await asyncio.sleep(0.5)
+
+        # Verify window is open by checking for search box or YOUR OFFER
+        screenshot = capture_screen()
+        found, _ = detect_template(screenshot, "search_box.png", threshold=0.7)
 
         if not found:
-            # Try waiting a bit more
-            await asyncio.sleep(2.0)
+            # Try one more time
+            await asyncio.sleep(1.0)
             screenshot = capture_screen()
-            # Check if trade window is visible by looking for "YOUR OFFER" text
-            text = ocr.read_text(screenshot, region=self.config.regions.your_offer)
-            if "offer" not in text.lower() and "your" not in text.lower():
-                logger.warning("Trade window not detected — giving up")
-                self.state = TradeState.FAILED
-                await self._on_fail(None, "Trade window not opened")
-                return
+            found, _ = detect_template(screenshot, "search_box.png", threshold=0.7)
 
-        logger.info("Trade window detected")
-        await self._search_and_add_item()
+        if not found:
+            logger.warning("Trade window not detected")
+            self.state = TradeState.FAILED
+            await self._on_fail(None, "Trade window not opened")
+            return
 
-    async def _search_and_add_item(self) -> None:
-        """Step 3: Search for item and add to YOUR OFFER."""
-        self.state = TradeState.SEARCHING_ITEM
+        logger.info("Trade window open")
+        await self._search_and_add_items()
+
+    # ─── Step 3: Search item ──────────────────────────────────────
+
+    async def _search_and_add_items(self) -> None:
+        """Search for item and add to YOUR OFFER."""
+        self.state = TradeState.SEARCHING
         regions = self.config.regions
         items = self._current_trade.get("items", []) if self._current_trade else []
 
         if not items:
             logger.warning("No items to trade")
             self.state = TradeState.FAILED
-            await self._on_fail(
-                self._current_trade.get("order_id") if self._current_trade else None,
-                "No items specified",
-            )
+            await self._on_fail(None, "No items specified")
             return
 
-        item_name = items[0]
-        logger.info(f"Searching for item: {item_name}")
+        # Process each item
+        for item_name in items:
+            await self._search_single_item(item_name)
+            await asyncio.sleep(0.5)
+
+        logger.info(f"All items added: {items}")
+        await self._wait_for_countdown()
+
+    async def _search_single_item(self, item_name: str) -> None:
+        """Search for a single item and add it."""
+        regions = self.config.regions
+        logger.info(f"Searching for: {item_name}")
 
         # Click search box
         sx, sy, sw, sh = regions.search_box
         await async_click(sx + sw // 2, sy + sh // 2)
         await asyncio.sleep(0.3)
 
-        # Clear any existing text
+        # Clear and type
         await async_press("ctrl+a")
         await asyncio.sleep(0.1)
         await async_press("backspace")
         await asyncio.sleep(0.2)
 
-        # Type item name (first 3-4 chars for partial match)
+        # Type item name (first 3-4 chars)
         search_term = item_name[:4].lower()
         await async_type(search_term)
         await asyncio.sleep(1.0)
 
-        # Click on the first matching item in the results list
-        # Results appear below search box
+        # Click first result in list (below search box)
         await async_click(sx + sw // 2, sy + sh + 40)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.3)
 
-        # Click again to add to YOUR OFFER (click on item in results)
+        # Click again to confirm adding to YOUR OFFER
         await async_click(sx + sw // 2, sy + sh + 40)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.3)
 
-        logger.info(f"Item {item_name} added to offer")
-        await self._confirm_trade()
+        logger.debug(f"Added {item_name} to offer")
 
-    async def _confirm_trade(self) -> None:
-        """Step 4: Click gray ACCEPT button."""
-        self.state = TradeState.CONFIRMING_GRAY
+    # ─── Step 5: Wait for countdown ───────────────────────────────
+
+    async def _wait_for_countdown(self) -> None:
+        """Wait for 'Please wait (X) before accepting' countdown."""
+        self.state = TradeState.WAITING_COUNTDOWN
+        logger.info("Waiting for countdown (6-7 sec)...")
+        await asyncio.sleep(7.0)
+        await self._click_accept()
+
+    # ─── Step 6: Click ACCEPT ─────────────────────────────────────
+
+    async def _click_accept(self) -> None:
+        """Click the ACCEPT button."""
+        self.state = TradeState.CLICKING_ACCEPT
         regions = self.config.regions
 
-        logger.info("Clicking gray ACCEPT...")
+        logger.info("Clicking ACCEPT...")
         cx, cy, cw, ch = regions.confirm_button
         await async_click(cx + cw // 2, cy + ch // 2)
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(1.5)
 
-        # Step 5: Wait for countdown (4 seconds in MM2)
-        self.state = TradeState.WAITING_COUNTDOWN
-        logger.info("Waiting for countdown...")
-        await asyncio.sleep(5.0)
-
-        # Step 6: Click green ACCEPT
-        self.state = TradeState.CONFIRMING_GREEN
-        logger.info("Clicking green ACCEPT...")
-        await async_click(cx + cw // 2, cy + ch // 2)
-        await asyncio.sleep(1.0)
-
-        # Step 7: Handle "ARE YOU SURE?" dialog
+        # Step 7: Handle "ARE YOU SURE?"
         await self._handle_are_you_sure()
 
+    # ─── Step 7: ARE YOU SURE? ────────────────────────────────────
+
     async def _handle_are_you_sure(self) -> None:
-        """Step 7: Click Yes on 'ARE YOU SURE?' dialog."""
+        """Click Yes on 'ARE YOU SURE?' dialog."""
         self.state = TradeState.CONFIRMING_YES
 
         screenshot = capture_screen()
 
-        # Try to find "Yes" button via template
+        # Try template match for Yes button
         found, center = detect_template(
             screenshot,
             "yes_button.png",
@@ -222,34 +230,41 @@ class TradeFlow:
 
         if found and center:
             await async_click(center[0], center[1])
-            logger.debug("Clicked Yes on ARE YOU SURE dialog")
+            logger.debug("Clicked Yes on ARE YOU SURE")
         else:
-            # Fallback: try OCR to find Yes button
+            # Fallback: try OCR
             text = ocr.read_text(screenshot)
             if "sure" in text.lower() or "yes" in text.lower():
-                # Click approximate Yes button location (usually center-right)
-                w, h = screenshot.shape[:2]
-                await async_click(w // 2 + 100, h // 2 + 50)
+                # Click Yes button (usually center of dialog)
+                h, w = screenshot.shape[:2]
+                await async_click(w // 2 + 80, h // 2 + 40)
                 logger.debug("Clicked Yes via OCR fallback")
             else:
-                logger.info("No ARE YOU SURE dialog — may already be confirmed")
+                logger.info("No ARE YOU SURE dialog found")
 
-        await asyncio.sleep(2.0)
-        await self._verify_completion()
+        await asyncio.sleep(1.0)
 
-    async def _verify_completion(self) -> None:
-        """Step 8: Verify trade completed via template or OCR."""
+        # Step 8: Wait for other side to accept
+        await self._wait_for_completion()
+
+    # ─── Step 8: Wait for other side ──────────────────────────────
+
+    async def _wait_for_completion(self) -> None:
+        """Wait for other side to accept and trade to complete."""
+        self.state = TradeState.WAITING_OTHER_SIDE
+        logger.info("Waiting for other side to accept...")
+
+        # Wait for "YOU HAVE ACCEPTED" or trade completion
         if self.config.ocr_enabled:
-            # Try template match first
             found, _ = wait_for_template(
                 capture_screen,
                 "you_have_accepted.png",
-                timeout=15.0,
+                timeout=30.0,
                 interval=1.0,
             )
 
             if not found:
-                # Fallback: OCR
+                # Try OCR
                 screenshot = capture_screen()
                 text = ocr.read_text(screenshot)
                 if "accepted" not in text.lower() and "completed" not in text.lower():
@@ -257,29 +272,32 @@ class TradeFlow:
                     self.state = TradeState.FAILED
                     await self._on_fail(
                         self._current_trade.get("order_id") if self._current_trade else None,
-                        "Completion not confirmed",
+                        "Other side did not accept",
                     )
                     return
+        else:
+            # Just wait fixed time
+            await asyncio.sleep(15.0)
 
-        # Step 9: Take proof screenshot
+        # Proof screenshot
         proof_path = await self._take_proof_screenshot()
 
-        # Step 10: Report success
+        # Report success
         self.state = TradeState.COMPLETED
         order_id = self._current_trade.get("order_id") if self._current_trade else None
         buyer = self._current_trade.get("buyer_nickname", "") if self._current_trade else ""
-        logger.info(f"Trade completed for {buyer}, order {order_id}")
+        logger.info(f"Trade completed! Buyer: {buyer}, Order: {order_id}")
 
         if self._on_trade_completed:
             await self._on_trade_completed(order_id, True, proof_path)
 
-        # Remove from local waitlist
         if buyer:
             waitlist_manager.remove_by_buyer(buyer)
 
-        # Reset state after delay
         await asyncio.sleep(3.0)
         self.state = TradeState.IDLE
+
+    # ─── Helpers ───────────────────────────────────────────────────
 
     async def _take_proof_screenshot(self) -> str | None:
         """Take proof screenshot and save to disk."""
@@ -301,14 +319,11 @@ class TradeFlow:
         logger.error(f"Trade failed: order={order_id}, error={error}")
         if self._on_trade_failed and order_id:
             await self._on_trade_failed(order_id, error)
-        # Reset state
         await asyncio.sleep(3.0)
         self.state = TradeState.IDLE
 
     def set_current_trade(self, trade: dict) -> None:
-        """Set the current trade to process."""
         self._current_trade = trade
 
     def stop(self) -> None:
-        """Stop the scan loop."""
         self._running = False
