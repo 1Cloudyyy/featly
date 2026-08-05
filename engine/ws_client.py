@@ -41,7 +41,9 @@ class WSClient:
             try:
                 async with websockets.connect(
                     self.config.ws_url,
-                    ping_interval=None,
+                    ping_interval=20,
+                    ping_timeout=10,
+                    close_timeout=5,
                 ) as ws:
                     self._ws = ws
                     logger.info(f"Connected to {self.config.ws_url}")
