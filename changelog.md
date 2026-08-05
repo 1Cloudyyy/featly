@@ -47,3 +47,18 @@
 - handlers/funpay.py — обработчики ивентов
 - handlers/telegram.py — роутеры aiogram 3
 - utils/alerts.py — Telegram алерты
+
+## [3.0.0] — 2026-08-05
+
+### Фаза 3: Windows Engine
+- config.py — загрузка конфигурации из YAML
+- ws_client.py — WebSocket клиент (auth, heartbeat, реконнект)
+- screen_capture.py — скриншоты через mss
+- cv_matcher.py — OpenCV template matching
+- input_controller.py — клики/клавиатура через pydirectinput-rgx
+- waitlist_manager.py — локальный кэш waitlist
+- trade_flow.py — автоматика выдачи (скан → accept → items → confirm)
+- anti_afk.py — анти-АФК
+- reconnect.py — авто-реконнект при кике
+- profiles/mm2.yaml — координаты окон MM2
+- main.py — точка входа

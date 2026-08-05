@@ -1,0 +1,37 @@
+# MM2 (Murder Mystery 2) game profile
+# Coordinates are approximate — adjust for your screen resolution
+
+# Screen regions (x, y, width, height)
+regions:
+  # Trade request notification (top-center popup)
+  trade_request: [860, 100, 200, 80]
+
+  # Accept trade button (in trade window)
+  accept_button: [960, 600, 120, 50]
+
+  # Search box in trade window
+  search_box: [700, 350, 200, 40]
+
+  # Your offer area (where items go)
+  your_offer: [600, 400, 300, 200]
+
+  # Confirm/accept buttons (gray and green)
+  confirm_button: [960, 650, 120, 50]
+
+  # Reconnect button (when kicked)
+  reconnect_button: [860, 400, 200, 80]
+
+  # MM2 HUD (to confirm we're in-game)
+  mm2_hud: [0, 0, 200, 50]
+
+  # "YOU HAVE ACCEPTED" text (trade confirmation)
+  you_have_accepted: [700, 350, 300, 60]
+
+# Trade flow settings
+scan_interval: 2.0
+template_threshold: 0.8
+trade_confirm_delay: 6.0
+
+# Anti-AFK
+anti_afk_interval: 300
+anti_afk_enabled: true
