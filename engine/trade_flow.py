@@ -168,15 +168,14 @@ class TradeFlow:
         await async_click(sx + sw // 2, sy + sh // 2)
         await asyncio.sleep(0.3)
 
-        # Clear and type
+        # Clear and type FULL item name for exact match
         await async_press("ctrl+a")
         await asyncio.sleep(0.1)
         await async_press("backspace")
         await asyncio.sleep(0.2)
 
-        # Type item name (first 3-4 chars)
-        search_term = item_name[:4].lower()
-        await async_type(search_term)
+        # Type full item name
+        await async_type(item_name.lower())
         await asyncio.sleep(1.0)
 
         # Click first result in list (below search box)
