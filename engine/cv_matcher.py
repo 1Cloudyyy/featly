@@ -24,7 +24,9 @@ def _load_template(name: str) -> np.ndarray | None:
         logger.warning(f"Template not found: {path}")
         return None
 
-    img = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    # Use np.fromfile + imdecode to support Cyrillic paths
+    buf = np.fromfile(str(path), dtype=np.uint8)
+    img = cv2.imdecode(buf, cv2.IMREAD_COLOR)
     if img is None:
         logger.error(f"Failed to load template: {path}")
         return None
