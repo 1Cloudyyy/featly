@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import yaml
@@ -55,6 +56,14 @@ TEMPLATES_DIR = CONFIG_DIR / "templates"
 def load_config(profile: str = "mm2") -> EngineConfig:
     """Load engine config, optionally merging with a game profile."""
     config = EngineConfig()
+
+    # Override from env vars
+    if ws_url := os.getenv("FEATLY_WS_URL"):
+        config.ws_url = ws_url
+    if ws_secret := os.getenv("FEATLY_WS_SECRET"):
+        config.ws_secret = ws_secret
+    if bot_id := os.getenv("FEATLY_BOT_ID"):
+        config.bot_id = bot_id
 
     # Try loading profile
     profile_path = PROFILES_DIR / f"{profile}.yaml"
