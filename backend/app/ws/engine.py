@@ -87,16 +87,30 @@ async def engine_websocket(websocket: WebSocket) -> None:
     waitlist = await _get_waitlist(bot_id)
     await websocket.send_json({"type": "waitlist_sync", "waitlist": waitlist})
 
+    # Message loop with keepalive
+    async def _keepalive():
+        while True:
+            await asyncio.sleep(20)
+            try:
+                await ws.send_json({"type": "ping"})
+            except Exception:
+                break
+
+    keepalive_task = asyncio.create_task(_keepalive())
+
     # Message loop
     try:
         while True:
-            data = await websocket.receive_json()
+            data = await asyncio.wait_for(websocket.receive_json(), timeout=60)
             await _handle_engine_message(bot_id, data)
+    except asyncio.TimeoutError:
+        logger.warning(f"Engine timeout: {bot_id}")
     except WebSocketDisconnect:
         logger.info(f"Engine disconnected: {bot_id}")
     except Exception as e:
         logger.error(f"Engine error {bot_id}: {e}")
     finally:
+        keepalive_task.cancel()
         connections.pop(bot_id, None)
         await _update_bot_status(bot_id, False)
 

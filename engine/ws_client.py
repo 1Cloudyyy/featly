@@ -41,8 +41,7 @@ class WSClient:
             try:
                 async with websockets.connect(
                     self.config.ws_url,
-                    ping_interval=20,
-                    ping_timeout=10,
+                    ping_interval=None,
                     close_timeout=5,
                 ) as ws:
                     self._ws = ws
