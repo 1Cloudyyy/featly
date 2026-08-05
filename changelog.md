@@ -62,3 +62,13 @@
 - reconnect.py — авто-реконнект при кике
 - profiles/mm2.yaml — координаты окон MM2
 - main.py — точка входа
+
+## [4.0.0] — 2026-08-05
+
+### Фаза 4: OCR + Tests + Docker
+- ocr.py — pytesseract для чтения ников и текста
+- trade_flow.py — улучшен (OCR ников, proof-скриншоты, error handling)
+- backend/tests/ — pytest конфигурация и тесты
+- engine/tests/ — тесты config, waitlist
+- backend/Dockerfile — контейнер для бэкенда
+- docker-compose.yml — PostgreSQL + Backend
