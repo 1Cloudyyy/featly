@@ -1,0 +1,30 @@
+[Unit]
+Description=Featly Backend API
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=featly
+Group=featly
+WorkingDirectory=/opt/featly/backend
+Environment=PATH=/opt/featly/backend/venv/bin
+Environment=FEATLY_DATABASE_URL=postgresql+asyncpg://featly:featly@localhost:5432/featly
+Environment=FEATLY_WS_SECRET=change-me-in-production
+ExecStart=/opt/featly/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=featly-backend
+
+# Security
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/featly/backend/uploads /opt/featly/backend/logs
+
+[Install]
+WantedBy=multi-user.target

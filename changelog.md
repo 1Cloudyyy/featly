@@ -82,3 +82,14 @@
 - health/detailed — DB health check endpoint
 - scripts/setup.sh — VPS quick setup script
 - README.md — project documentation
+
+## [6.0.0] — 2026-08-05
+
+### Фаза 6: Полировка + деплой
+- scripts/featly-backend.service — systemd unit для автозапуска
+- scripts/deploy-backend.sh — one-click деплой на VPS
+- scripts/featly-engine-task.xml — Windows Task Scheduler для Engine
+- scripts/install-engine-task.bat — установка автозапуска Engine
+- scripts/health-check.sh — health check polling + auto-restart
+- scripts/featly-logrotate.conf — лог-ротация
+- README.md — инструкции по деплою

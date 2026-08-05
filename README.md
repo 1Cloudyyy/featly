@@ -121,3 +121,48 @@ Edit `engine/profiles/mm2.yaml` for screen regions and trade flow settings.
 - OpenCV, pydirectinput-rgx, mss, pytesseract, PyWinCtl
 - PostgreSQL 15, Docker
 - GitHub Actions CI (ruff + mypy)
+
+## Deployment
+
+### VPS (Backend + PostgreSQL)
+
+```bash
+# One-click deploy
+bash scripts/deploy-backend.sh
+
+# Or manual
+cd /opt/featly/backend
+source venv/bin/activate
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+### Windows (Engine)
+
+```bash
+# Install auto-start task
+scripts\install-engine-task.bat
+
+# Or run manually
+cd engine
+python -m engine.main
+```
+
+### Health Check
+
+```bash
+# Check backend
+curl http://localhost:8000/health/detailed
+
+# Setup cron (every 5 min)
+echo "*/5 * * * * /opt/featly/scripts/health-check.sh" | crontab -
+```
+
+### Logs
+
+```bash
+# Backend logs
+journalctl -u featly-backend -f
+
+# Engine logs
+tail -f engine/logs/engine_*.log
+```
