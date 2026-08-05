@@ -1,0 +1,11 @@
+# Windows Engine dependencies
+opencv-python>=4.10.0
+numpy>=1.26.4
+pytesseract>=0.3.10
+Pillow>=10.4.0
+mss>=9.0.1
+pydirectinput-rgx>=1.1.0
+pywinctl>=0.5
+websockets>=14.0
+pyyaml>=6.0.1
+loguru>=0.7.3
