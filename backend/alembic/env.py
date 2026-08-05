@@ -1,13 +1,18 @@
 """Alembic environment for async SQLAlchemy."""
 
 import asyncio
+import sys
 from logging.config import fileConfig
+from pathlib import Path
 
 from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from app.models import Base  # noqa: F401
+# Add backend to path so imports work
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.models import Base  # noqa: E402
 
 config = context.config
 if config.config_file_name is not None:

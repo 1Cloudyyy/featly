@@ -18,3 +18,14 @@
 ### Добавлено
 - Подробный роадмап разработки в dev_notes.md (7 фаз, ~25-35 дней до MVP)
 - Определены критические зависимости между фазами
+
+## [1.0.0] — 2026-08-05
+
+### Фаза 0: Инфраструктура
+- Инициализирован git-репозиторий (приватный: github.com/1Cloudyyy/featly)
+- Создана структура проекта: plugin/, backend/, engine/, docs/, .github/
+- Настроен pyproject.toml (ruff + mypy + black)
+- Настроен GitHub Actions CI (lint + typecheck)
+- Настроен Alembic для async PostgreSQL
+- Созданы requirements.txt для каждого компонента
+- Перенесена документация в docs/
