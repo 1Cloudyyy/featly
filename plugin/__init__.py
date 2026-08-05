@@ -1,7 +1,4 @@
-"""Featly Plugin — module for funpay-universal.
-
-Entry point: registers FunPay event handlers and Telegram routers.
-"""
+"""Featly Plugin — module for funpay-universal."""
 
 from __future__ import annotations
 
@@ -15,7 +12,7 @@ from .handlers.funpay import (
     on_new_message,
 )
 from .handlers.telegram import router as tg_router
-from .meta import NAME, VERSION
+from .meta import NAME, PREFIX, VERSION
 
 EVENT_HANDLERS = {
     "on_new_deal": on_new_deal,
