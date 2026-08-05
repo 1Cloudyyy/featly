@@ -12,7 +12,7 @@ from .handlers.funpay import (
     on_new_message,
 )
 from .handlers.telegram import router as tg_router
-from .meta import NAME, PREFIX, VERSION
+from .meta import AUTHORS, DESCRIPTION, NAME, PREFIX, VERSION
 
 EVENT_HANDLERS = {
     "on_new_deal": on_new_deal,
