@@ -48,3 +48,25 @@ app.include_router(ws_router)
 @app.get("/health")
 async def health_check() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/health/detailed")
+async def health_detailed() -> dict:
+    """Detailed health check — verifies DB connection."""
+    from sqlalchemy import text
+
+    from app.db import async_session
+
+    db_ok = False
+    try:
+        async with async_session() as session:
+            await session.execute(text("SELECT 1"))
+            db_ok = True
+    except Exception:
+        pass
+
+    return {
+        "status": "ok" if db_ok else "degraded",
+        "database": "connected" if db_ok else "disconnected",
+        "version": "2.2.0",
+    }

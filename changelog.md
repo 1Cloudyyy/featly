@@ -72,3 +72,13 @@
 - engine/tests/ — тесты config, waitlist
 - backend/Dockerfile — контейнер для бэкенда
 - docker-compose.yml — PostgreSQL + Backend
+
+## [5.0.0] — 2026-08-05
+
+### Фаза 5: Integration + E2E Tests
+- backend/tests/test_integration.py — full order lifecycle test
+- backend/tests/test_ws.py — WebSocket auth and heartbeat tests
+- backend/tests/test_e2e.py — end-to-end trade flow simulation
+- health/detailed — DB health check endpoint
+- scripts/setup.sh — VPS quick setup script
+- README.md — project documentation
