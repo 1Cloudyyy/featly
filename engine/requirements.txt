@@ -8,4 +8,5 @@ pydirectinput-rgx>=1.1.0
 pywinctl>=0.4.1
 websockets>=14.0
 pyyaml>=6.0.1
+pydantic>=2.10.0
 loguru>=0.7.3
