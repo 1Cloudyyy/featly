@@ -29,3 +29,21 @@
 - Настроен Alembic для async PostgreSQL
 - Созданы requirements.txt для каждого компонента
 - Перенесена документация в docs/
+
+## [2.0.0] — 2026-08-05
+
+### Фаза 1: Backend
+- SQLAlchemy модели: Order, PendingTrade, InventoryItem, Bot, TradeLog
+- Pydantic схемы для API
+- REST routes: /orders, /pending_trades, /inventory, /bots
+- WebSocket сервер: auth, heartbeat, waitlist sync
+- Service layer: order_service, inventory_service
+
+### Фаза 2: Plugin
+- meta.py, settings.py, data.py
+- core/roblox_api.py — validate username, request friendship, CSRF
+- core/backend_client.py — REST клиент к бэкенду
+- core/order_manager.py — lifecycle заказов, диалог в чате
+- handlers/funpay.py — обработчики ивентов
+- handlers/telegram.py — роутеры aiogram 3
+- utils/alerts.py — Telegram алерты
