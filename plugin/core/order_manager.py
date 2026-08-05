@@ -6,10 +6,10 @@ import json
 
 from loguru import logger
 
-from plugin.core.backend_client import backend_client
-from plugin.core.roblox_api import RobloxAuthError, request_friendship, validate_username
-from plugin.data import orders_cache
-from plugin.settings import load_settings
+from ..core.backend_client import backend_client
+from ..core.roblox_api import RobloxAuthError, request_friendship, validate_username
+from ..data import orders_cache
+from ..settings import load_settings
 
 # Conversation states per chat_id
 _dialog_states: dict[int, dict] = {}

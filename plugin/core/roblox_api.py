@@ -5,7 +5,7 @@ from __future__ import annotations
 import aiohttp
 from loguru import logger
 
-from plugin.settings import load_settings
+from ..settings import load_settings
 
 ROBLOX_USERS_URL = "https://users.roblox.com/v1/usernames/users"
 ROBLOX_FRIENDS_URL = "https://friends.roblox.com/v1/users/{user_id}/request-friendship"

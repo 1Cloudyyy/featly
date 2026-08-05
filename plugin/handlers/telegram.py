@@ -7,8 +7,8 @@ from aiogram.filters import Command
 from aiogram.types import Message
 from loguru import logger
 
-from plugin.core.backend_client import backend_client
-from plugin.settings import load_settings, update_settings
+from ..core.backend_client import backend_client
+from ..settings import load_settings, update_settings
 
 router = Router()
 

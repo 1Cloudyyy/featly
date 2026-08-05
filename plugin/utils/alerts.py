@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from loguru import logger
 
-from plugin.settings import load_settings
+from ..settings import load_settings
 
 
 async def send_alert(message: str, level: str = "info") -> bool:
