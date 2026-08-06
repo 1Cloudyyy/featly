@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import verify_api_key
 from app.db import get_session
 from app.models.order import OrderStatus
 from app.schemas.schemas import (
@@ -22,7 +23,7 @@ from app.services.order_service import (
     update_order_status,
 )
 
-router = APIRouter(prefix="/orders", tags=["orders"])
+router = APIRouter(prefix="/orders", tags=["orders"], dependencies=[Depends(verify_api_key)])
 
 
 @router.post("", response_model=OrderResponse, status_code=201)
@@ -82,7 +83,7 @@ async def update_order(
 
 # --- Pending Trades ---
 
-pending_router = APIRouter(prefix="/pending_trades", tags=["pending_trades"])
+pending_router = APIRouter(prefix="/pending_trades", tags=["pending_trades"], dependencies=[Depends(verify_api_key)])
 
 
 @pending_router.get("", response_model=list[PendingTradeResponse])

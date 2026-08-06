@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import verify_api_key
 from app.db import get_session
 from app.schemas.schemas import InventoryResponse, InventoryUpdate
 from app.services.inventory_service import (
@@ -11,7 +12,7 @@ from app.services.inventory_service import (
     update_item,
 )
 
-router = APIRouter(prefix="/inventory", tags=["inventory"])
+router = APIRouter(prefix="/inventory", tags=["inventory"], dependencies=[Depends(verify_api_key)])
 
 
 @router.get("", response_model=list[InventoryResponse])

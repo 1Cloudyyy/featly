@@ -341,12 +341,26 @@ class TradeFlow:
             return None
 
     async def _on_fail(self, order_id: int | None, error: str) -> None:
-        """Handle trade failure."""
+        """Handle trade failure — close window and notify backend."""
         logger.error(f"Trade failed: order={order_id}, error={error}")
+
+        # Close trade window if open
+        await self._close_trade_window()
+
+        # Notify backend
         if self._on_trade_failed and order_id:
             await self._on_trade_failed(order_id, error)
+
         await asyncio.sleep(3.0)
         self.state = TradeState.IDLE
+
+    async def _close_trade_window(self) -> None:
+        """Close trade window by pressing Escape."""
+        try:
+            await async_press("escape")
+            await asyncio.sleep(0.5)
+        except Exception as e:
+            logger.debug(f"Failed to close trade window: {e}")
 
     def set_current_trade(self, trade: dict) -> None:
         self._current_trade = trade

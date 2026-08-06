@@ -91,21 +91,8 @@ def wait_for_template(
     interval: float = 0.5,
     region: tuple[int, int, int, int] | None = None,
 ) -> tuple[bool, tuple[int, int] | None]:
-    """Synchronously wait for a template to appear.
-
-    Args:
-        screenshot_fn: callable that returns BGR numpy array
-        template_name: filename in templates/
-        threshold: match confidence
-        timeout: max wait time in seconds
-        interval: time between attempts
-        region: optional region to search
-
-    Returns:
-        (found, center) or (False, None) after timeout
-    """
+    """Synchronously wait for a template to appear."""
     import time
-
     start = time.monotonic()
     while time.monotonic() - start < timeout:
         screenshot = screenshot_fn()
@@ -113,7 +100,26 @@ def wait_for_template(
         if found:
             return True, center
         time.sleep(interval)
+    logger.warning(f"Template '{template_name}' not found after {timeout}s")
+    return False, None
 
+
+async def wait_for_template_async(
+    screenshot_fn,
+    template_name: str,
+    threshold: float = 0.8,
+    timeout: float = 30.0,
+    interval: float = 0.5,
+) -> tuple[bool, tuple[int, int] | None]:
+    """Async wait for a template to appear."""
+    import asyncio
+    start = asyncio.get_event_loop().time()
+    while asyncio.get_event_loop().time() - start < timeout:
+        screenshot = await asyncio.to_thread(screenshot_fn)
+        found, center = detect_template(screenshot, template_name, threshold)
+        if found:
+            return True, center
+        await asyncio.sleep(interval)
     logger.warning(f"Template '{template_name}' not found after {timeout}s")
     return False, None
 

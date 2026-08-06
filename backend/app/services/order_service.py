@@ -9,6 +9,8 @@ from app.models.order import Order, OrderStatus
 from app.models.pending_trade import PendingTrade, PendingTradeStatus
 
 
+from loguru import logger
+
 async def create_order(
     session: AsyncSession,
     funpay_order_id: str,
@@ -16,6 +18,12 @@ async def create_order(
     buyer_user_id: int,
     items: list[str],
 ) -> Order:
+    # Check for duplicate
+    existing = await get_order_by_funpay_id(session, funpay_order_id)
+    if existing:
+        logger.info(f"Order {funpay_order_id} already exists, returning existing")
+        return existing
+
     order = Order(
         funpay_order_id=funpay_order_id,
         buyer_nickname=buyer_nickname,

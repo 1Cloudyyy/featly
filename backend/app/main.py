@@ -17,6 +17,9 @@ from app.ws.engine import router as ws_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Featly Backend starting...")
+    logger.info(f"WS_SECRET: {settings.ws_secret[:8]}...")
+    logger.info(f"API_KEY: {settings.api_key[:8]}...")
+    logger.info("Save these! They won't be shown again.")
     yield
     logger.info("Featly Backend shutting down")
 

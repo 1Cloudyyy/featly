@@ -6,11 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import verify_api_key
 from app.db import get_session
 from app.models.bot import Bot
 from app.schemas.schemas import BotCookieUpdate, BotResponse
 
-router = APIRouter(prefix="/bots", tags=["bots"])
+router = APIRouter(prefix="/bots", tags=["bots"], dependencies=[Depends(verify_api_key)])
 
 
 @router.get("", response_model=list[BotResponse])

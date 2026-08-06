@@ -50,11 +50,39 @@ class WaitlistManager:
         return len(self._waitlist) < before
 
     def find_by_buyer(self, buyer_nickname: str) -> dict | None:
-        """Find a trade by buyer nickname."""
+        """Find a trade by buyer nickname (fuzzy match)."""
+        buyer_lower = buyer_nickname.lower().strip()
         for trade in self._waitlist:
-            if trade.get("buyer_nickname") == buyer_nickname:
+            nick = trade.get("buyer_nickname", "").lower().strip()
+            # Exact match
+            if buyer_lower == nick:
                 return trade
+            # Partial match (OCR might read partial name)
+            if buyer_lower in nick or nick in buyer_lower:
+                return trade
+            # Fuzzy match (Levenshtein-like: allow 2 char difference)
+            if len(buyer_lower) >= 3 and len(nick) >= 3:
+                if self._levenshtein(buyer_lower, nick) <= 2:
+                    return trade
         return None
+
+    @staticmethod
+    def _levenshtein(a: str, b: str) -> int:
+        """Simple Levenshtein distance."""
+        if len(a) < len(b):
+            return WaitlistManager._levenshtein(b, a)
+        if len(b) == 0:
+            return len(a)
+        prev = range(len(b) + 1)
+        for i, ca in enumerate(a):
+            curr = [i + 1]
+            for j, cb in enumerate(b):
+                insertions = prev[j + 1] + 1
+                deletions = curr[j] + 1
+                substitutions = prev[j] + (ca != cb)
+                curr.append(min(insertions, deletions, substitutions))
+            prev = curr
+        return prev[-1]
 
     def is_in_waitlist(self, buyer_nickname: str) -> bool:
         """Check if buyer is in waitlist."""
