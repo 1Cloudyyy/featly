@@ -1,15 +1,27 @@
 """Order service — business logic for orders and pending trades."""
 
 import json
+from datetime import datetime, timezone
 
+from loguru import logger
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.order import Order, OrderStatus
 from app.models.pending_trade import PendingTrade, PendingTradeStatus
 
+# Valid status transitions for state machine
+VALID_TRANSITIONS: dict[OrderStatus, list[OrderStatus]] = {
+    OrderStatus.NEW: [OrderStatus.DIALOG, OrderStatus.CANCELLED],
+    OrderStatus.DIALOG: [OrderStatus.WAITING_TRADE, OrderStatus.CANCELLED],
+    OrderStatus.WAITING_TRADE: [OrderStatus.DELIVERING, OrderStatus.CANCELLED],
+    OrderStatus.DELIVERING: [OrderStatus.COMPLETED, OrderStatus.CANCELLED],
+    OrderStatus.COMPLETED: [],
+    OrderStatus.CANCELLED: [],
+    OrderStatus.REFUNDED: [],
+}
 
-from loguru import logger
 
 async def create_order(
     session: AsyncSession,
@@ -32,7 +44,14 @@ async def create_order(
         status=OrderStatus.NEW,
     )
     session.add(order)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        existing = await get_order_by_funpay_id(session, funpay_order_id)
+        if existing:
+            return existing
+        raise
     await session.refresh(order)
     return order
 
@@ -47,12 +66,16 @@ async def update_order_status(
     order = result.scalar_one_or_none()
     if order is None:
         return None
+
+    # State machine validation
+    if status not in VALID_TRANSITIONS.get(order.status, []):
+        logger.warning(f"Invalid transition: {order.status} → {status} for order {order_id}")
+        raise ValueError(f"Cannot transition from {order.status} to {status}")
+
     order.status = status
     if proof_url:
         order.proof_url = proof_url
     if status == OrderStatus.COMPLETED:
-        from datetime import datetime, timezone
-
         order.completed_at = datetime.now(timezone.utc)
     await session.commit()
     await session.refresh(order)

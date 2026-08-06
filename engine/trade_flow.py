@@ -21,13 +21,14 @@ import cv2
 from loguru import logger
 
 from engine.config import EngineConfig
-from engine.cv_matcher import detect_template, wait_for_template
+from engine.cv_matcher import detect_template, wait_for_template_async
 from engine.input_controller import (
     async_click,
     async_press,
     async_type,
 )
 from engine.ocr import ocr
+from engine.roblox_window import focus_roblox, is_roblox_focused
 from engine.screen_capture import capture_screen
 from engine.waitlist_manager import waitlist_manager
 
@@ -86,6 +87,14 @@ class TradeFlow:
 
     async def _scan_for_trade_request(self) -> None:
         """Step 1: Scan for incoming trade request notification."""
+        # Safety check: Roblox must be focused
+        if not is_roblox_focused():
+            logger.warning("Roblox not focused — attempting to refocus")
+            if not focus_roblox():
+                logger.error("Cannot focus Roblox — skipping scan")
+                return
+            await asyncio.sleep(0.5)
+
         screenshot = capture_screen()
         regions = self.config.regions
 
@@ -282,7 +291,7 @@ class TradeFlow:
 
         # Wait for "YOU HAVE ACCEPTED" or trade completion
         if self.config.ocr_enabled:
-            found, _ = wait_for_template(
+            found, _ = await wait_for_template_async(
                 capture_screen,
                 "you_have_accepted.png",
                 timeout=30.0,

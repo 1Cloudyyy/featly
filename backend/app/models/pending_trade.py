@@ -35,6 +35,3 @@ class PendingTrade(Base):
     __table_args__ = (
         Index("ix_pending_trades_bot_status", "bot_id", "status"),
     )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
