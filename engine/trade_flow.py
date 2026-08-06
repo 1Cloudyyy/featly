@@ -87,14 +87,6 @@ class TradeFlow:
 
     async def _scan_for_trade_request(self) -> None:
         """Step 1: Scan for incoming trade request notification."""
-        # Safety check: Roblox must be focused
-        if not is_roblox_focused():
-            logger.warning("Roblox not focused — attempting to refocus")
-            if not focus_roblox():
-                logger.error("Cannot focus Roblox — skipping scan")
-                return
-            await asyncio.sleep(0.5)
-
         screenshot = capture_screen()
         regions = self.config.regions
 
@@ -136,6 +128,15 @@ class TradeFlow:
         self.state = TradeState.DETECTED
         self._current_trade = trade_data
         logger.info(f"Buyer {buyer_nick} in waitlist — accepting trade")
+
+        # Safety check: Roblox must be focused before clicking
+        if not is_roblox_focused():
+            logger.warning("Roblox not focused — attempting to refocus")
+            if not focus_roblox():
+                logger.error("Cannot focus Roblox — aborting trade")
+                await self._on_fail(trade_data.get("order_id"), "Roblox not focused")
+                return
+            await asyncio.sleep(0.5)
 
         if center:
             await async_click(center[0], center[1])

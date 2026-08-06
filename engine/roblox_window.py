@@ -10,7 +10,10 @@ def is_roblox_focused() -> bool:
     try:
         import pywinctl as pwc
         win = pwc.getActiveWindow()
-        return win and "roblox" in win.title.lower()
+        if not win:
+            return False
+        title = win.title.lower()
+        return "roblox" in title or "mm2" in title
     except Exception:
         return False
 
@@ -19,13 +22,14 @@ def focus_roblox() -> bool:
     """Try to bring Roblox window to focus."""
     try:
         import pywinctl as pwc
-        wins = pwc.getWindowsWithTitle("Roblox")
-        if wins:
-            wins[0].activate()
-            logger.info("Roblox window focused")
-            return True
-        logger.warning("Roblox window not found")
-        return False
+        # Case-insensitive search
+        wins = pwc.getWindowsWithTitle("Roblox") or pwc.getWindowsWithTitle("roblox")
+        if not wins:
+            logger.warning("Roblox window not found")
+            return False
+        wins[0].activate()
+        logger.info("Roblox window focused")
+        return True
     except Exception as e:
         logger.error(f"Failed to focus Roblox: {e}")
         return False
