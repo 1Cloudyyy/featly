@@ -40,6 +40,10 @@ async def main() -> None:
 
     ws_client.on_waitlist_update(on_waitlist_update)
 
+    # Wire up trade result callbacks → backend
+    trade_flow.on_trade_completed(ws_client.report_trade_completed)
+    trade_flow.on_trade_failed(ws_client.report_trade_failed)
+
     # Handle shutdown
     def shutdown_handler():
         logger.info("Shutdown signal received")

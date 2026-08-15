@@ -39,9 +39,19 @@ export interface PendingTrade {
   created_at: string
 }
 
+// API key for backend auth. Set via VITE_API_KEY env (dev) or injected at build.
+const API_KEY = (import.meta as any).env?.VITE_API_KEY || ''
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  }
+  if (API_KEY) {
+    headers['X-API-Key'] = API_KEY
+  }
+
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     ...options,
   })
   if (!res.ok) throw new Error(`API error: ${res.status}`)

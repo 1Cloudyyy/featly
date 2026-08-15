@@ -14,6 +14,7 @@ Real MM2 trade flow:
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -59,13 +60,13 @@ class TradeFlow:
         self.state = TradeState.IDLE
         self._running = False
         self._current_trade: dict | None = None
-        self._on_trade_completed: callable = None
-        self._on_trade_failed: callable = None
+        self._on_trade_completed: Callable | None = None
+        self._on_trade_failed: Callable | None = None
 
-    def on_trade_completed(self, callback) -> None:
+    def on_trade_completed(self, callback: Callable) -> None:
         self._on_trade_completed = callback
 
-    def on_trade_failed(self, callback) -> None:
+    def on_trade_failed(self, callback: Callable) -> None:
         self._on_trade_failed = callback
 
     async def run_scan_loop(self) -> None:

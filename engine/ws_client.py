@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 
 import websockets
 from loguru import logger
 
 from engine.config import EngineConfig
+from engine.waitlist_manager import waitlist_manager
 
 
 class WSClient:
@@ -19,8 +21,7 @@ class WSClient:
         self._ws = None
         self._running = False
         self._waitlist: list[dict] = []
-        self._on_waitlist_update: callable = None
-        self._on_trade_command: callable = None
+        self._on_waitlist_update: Callable | None = None
 
     @property
     def waitlist(self) -> list[dict]:
@@ -29,10 +30,6 @@ class WSClient:
     def on_waitlist_update(self, callback) -> None:
         """Register callback for waitlist sync events."""
         self._on_waitlist_update = callback
-
-    def on_trade_command(self, callback) -> None:
-        """Register callback for trade commands from backend."""
-        self._on_trade_command = callback
 
     async def connect(self) -> None:
         """Connect to WebSocket server with retry."""
@@ -92,14 +89,18 @@ class WSClient:
             pass  # OK
 
         elif msg_type == "WAIT_FOR_TRADE":
-            if self._on_trade_command:
-                await self._on_trade_command(data)
+            trade = {
+                "order_id": data.get("order_id"),
+                "buyer_nickname": data.get("buyer_nickname"),
+                "buyer_user_id": data.get("buyer_user_id"),
+                "items": data.get("items", []),
+            }
+            waitlist_manager.add(trade)
+            logger.info(f"New pending trade queued: {trade.get('buyer_nickname')}")
 
         elif msg_type == "REMOVE_WAITLIST":
             buyer = data.get("buyer", "")
-            self._waitlist = [
-                w for w in self._waitlist if w.get("buyer_nickname") != buyer
-            ]
+            waitlist_manager.remove_by_buyer(buyer)
             logger.info(f"Removed from waitlist: {buyer}")
 
         elif msg_type == "SCREENSHOT":

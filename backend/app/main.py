@@ -8,6 +8,8 @@ from fastapi.responses import RedirectResponse
 from loguru import logger
 
 from app.config import settings
+from app.db import engine
+from app.models import Base
 from app.routes.bots import router as bots_router
 from app.routes.inventory import router as inventory_router
 from app.routes.orders import OrderStatus, pending_router, router as orders_router
@@ -17,10 +19,14 @@ from app.ws.engine import router as ws_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Featly Backend starting...")
+    # Ensure tables exist on first run (Alembic migrations not yet present)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     logger.info(f"WS_SECRET: {settings.ws_secret[:8]}...")
     logger.info(f"API_KEY: {settings.api_key[:8]}...")
     logger.info("Save these! They won't be shown again.")
     yield
+    await engine.dispose()
     logger.info("Featly Backend shutting down")
 
 

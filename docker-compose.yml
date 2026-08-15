@@ -24,6 +24,7 @@ services:
     environment:
       FEATLY_DATABASE_URL: postgresql+asyncpg://featly:featly@postgres:5432/featly
       FEATLY_WS_SECRET: ${WS_SECRET:-change-me-in-production}
+      FEATLY_API_KEY: ${FEATLY_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -34,6 +35,8 @@ services:
     build:
       context: .
       dockerfile: admin/Dockerfile
+      args:
+        VITE_API_KEY: ${FEATLY_API_KEY:-}
     ports:
       - "3000:3000"
     depends_on:

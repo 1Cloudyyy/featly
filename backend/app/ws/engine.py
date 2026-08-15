@@ -11,12 +11,17 @@ from sqlalchemy import select
 from app.config import settings
 from app.db import async_session
 from app.models.bot import Bot, BotStatus
+from app.models.order import Order, OrderStatus
 from app.models.pending_trade import PendingTrade, PendingTradeStatus
+from app.services.inventory_service import decrement_item
 
 router = APIRouter()
 
 # Connected engines: bot_id -> WebSocket
 connections: dict[str, WebSocket] = {}
+
+# Queued messages for offline engines: bot_id -> asyncio.Queue
+message_queue: dict[str, asyncio.Queue] = {}
 
 
 async def _update_bot_status(bot_id: str, connected: bool) -> None:
@@ -53,14 +58,66 @@ async def _get_waitlist(bot_id: str) -> list[dict]:
 
 
 async def send_to_engine(bot_id: str, message: dict) -> bool:
+    """Send a message to an engine, queueing it if the engine is offline.
+
+    Queued messages are delivered on the next connection. Returns True if the
+    message was sent directly, False if it was queued.
+    """
     ws = connections.get(bot_id)
     if ws is None:
+        q = message_queue.setdefault(bot_id, asyncio.Queue(maxsize=100))
+        try:
+            q.put_nowait(message)
+            logger.info(f"Engine {bot_id} offline — queued message: {message.get('type')}")
+        except asyncio.QueueFull:
+            logger.warning(f"Message queue full for {bot_id}, dropping: {message.get('type')}")
         return False
     try:
         await ws.send_json(message)
         return True
     except Exception:
+        connections.pop(bot_id, None)
         return False
+
+
+async def _flush_queued_messages(bot_id: str, ws: WebSocket) -> None:
+    """Deliver any messages that were queued while the engine was offline."""
+    q = message_queue.pop(bot_id, None)
+    if q is None or q.empty():
+        return
+    delivered = 0
+    while not q.empty():
+        try:
+            msg = q.get_nowait()
+        except asyncio.QueueEmpty:
+            break
+        try:
+            await ws.send_json(msg)
+            delivered += 1
+        except Exception:
+            break
+    if delivered:
+        logger.info(f"Flushed {delivered} queued messages to {bot_id}")
+
+
+async def queue_pending_trade(trade: PendingTrade, action: str) -> None:
+    """Notify an engine about a pending trade change (WAIT_FOR_TRADE/REMOVE_WAITLIST).
+    `action` is 'add' or 'remove'. Queues the message if the engine is offline.
+    """
+    if action == "add":
+        message = {
+            "type": "WAIT_FOR_TRADE",
+            "order_id": trade.order_id,
+            "buyer_nickname": trade.buyer_nickname,
+            "buyer_user_id": trade.buyer_user_id,
+            "items": json.loads(trade.items),
+        }
+    else:
+        message = {
+            "type": "REMOVE_WAITLIST",
+            "buyer": trade.buyer_nickname,
+        }
+    await send_to_engine(trade.bot_id, message)
 
 
 @router.websocket("/ws/engine")
@@ -92,11 +149,14 @@ async def engine_websocket(websocket: WebSocket) -> None:
         while True:
             await asyncio.sleep(20)
             try:
-                await ws.send_json({"type": "ping"})
+                await websocket.send_json({"type": "ping"})
             except Exception:
                 break
 
     keepalive_task = asyncio.create_task(_keepalive())
+
+    # Deliver messages queued while the engine was offline
+    await _flush_queued_messages(bot_id, websocket)
 
     # Message loop
     try:
@@ -111,7 +171,9 @@ async def engine_websocket(websocket: WebSocket) -> None:
         logger.error(f"Engine error {bot_id}: {e}")
     finally:
         keepalive_task.cancel()
-        connections.pop(bot_id, None)
+        # Only pop if this is still the active connection for bot_id
+        if connections.get(bot_id) is websocket:
+            connections.pop(bot_id, None)
         await _update_bot_status(bot_id, False)
 
 
@@ -135,21 +197,48 @@ async def _handle_engine_message(bot_id: str, data: dict) -> None:
         order_id = data.get("order_id")
         success = data.get("success", True)
         proof_path = data.get("proof_path")
-        logger.info(f"Trade completed: order={order_id}, success={success}")
+
+        if not success:
+            # Failed delivery: keep order + pending_trade so the engine retries.
+            # Do not mark CANCELLED while the buyer stays in the waitlist,
+            # otherwise the engine would deliver items for a cancelled order.
+            logger.warning(f"Trade failed for order {order_id} — keeping for retry")
+            return
+
+        logger.info(f"Trade completed: order={order_id}")
 
         async with async_session() as session:
-            from app.models.order import Order, OrderStatus
-
             result = await session.execute(select(Order).where(Order.id == order_id))
             order = result.scalar_one_or_none()
             if order:
-                order.status = OrderStatus.COMPLETED if success else OrderStatus.CANCELLED
-                order.completed_at = datetime.now(timezone.utc)
-                if proof_path:
-                    order.proof_url = proof_path
-                await session.commit()
+                # Only accept a valid transition (e.g. DELIVERING → COMPLETED)
+                valid = {
+                    OrderStatus.WAITING_TRADE,
+                    OrderStatus.DELIVERING,
+                    OrderStatus.DIALOG,
+                }
+                if order.status in valid:
+                    order.status = OrderStatus.COMPLETED
+                    order.completed_at = datetime.now(timezone.utc)
+                    if proof_path:
+                        order.proof_url = proof_path
+                    # Decrement inventory for each delivered item
+                    try:
+                        items: list[str] = json.loads(order.items or "[]")
+                    except json.JSONDecodeError:
+                        items = []
+                    for item in items:
+                        item_key = str(item).strip().lower().replace(" ", "_")
+                        if item_key:
+                            await decrement_item(session, item_key)
+                    await session.commit()
+                else:
+                    logger.warning(
+                        f"Ignoring trade_completed for order {order_id}: "
+                        f"current status {order.status}"
+                    )
 
-            # Remove from pending_trades
+            # Remove from pending_trades (success path)
             result = await session.execute(
                 select(PendingTrade).where(
                     PendingTrade.order_id == order_id,

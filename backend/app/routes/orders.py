@@ -22,6 +22,7 @@ from app.services.order_service import (
     list_active_orders,
     update_order_status,
 )
+from app.ws.engine import queue_pending_trade
 
 router = APIRouter(prefix="/orders", tags=["orders"], dependencies=[Depends(verify_api_key)])
 
@@ -115,6 +116,7 @@ async def create_new_pending_trade(
         buyer_user_id=data.buyer_user_id,
         items=data.items,
     )
+    await queue_pending_trade(trade, "add")
     return PendingTradeResponse.model_validate(trade)
 
 
