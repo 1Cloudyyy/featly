@@ -275,9 +275,10 @@ async def _finish_dialog(bot, chat_id: int, state: dict) -> None:
                     log.warning("[диалог %s] заявка не отправлена (userId=%s)", chat_id, user_id)
                     _send(bot, chat_id, f"⚠️ Не удалось отправить заявку. Добавь меня сам: {OWNER_ROBLOX_NICK}")
             except RobloxAuthError as e:
-                log.error("[диалог %s] Roblox-ошибка (cookie): %s", chat_id, e)
-                _send(bot, chat_id, "⚠️ Техническая пауза, скоро продолжим...")
-                _dialog_states.pop(chat_id, None)
+                # Cookie невалиден: диалог НЕ сбрасываем — после обновления cookie
+                # покупатель напишет «Да» и всё продолжится с той же точки
+                log.error("[диалог %s] Roblox-ошибка (cookie): %s — диалог сохранён", chat_id, e)
+                _send(bot, chat_id, "⚠️ Техническая минутка — напиши «Да» через 2 минуты, продолжим с этого места.")
                 return
     else:
         log.info("[диалог %s] заявка в друзья пропущена (add_friends=false)", chat_id)
