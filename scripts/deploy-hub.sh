@@ -33,23 +33,26 @@ cd "$APP_DIR/hub"
 sudo -u featly python3.12 -m venv venv 2>/dev/null || sudo -u featly python3 -m venv venv
 sudo -u featly ./venv/bin/pip install -r requirements.txt
 
-# 4. Setup PostgreSQL
-echo "[4/7] Configuring PostgreSQL..."
-sudo -u postgres psql -c "CREATE USER $DB_USER WITH PASSWORD '$DB_PASS';" 2>/dev/null || true
-sudo -u postgres psql -c "CREATE DATABASE $DB_NAME OWNER $DB_USER;" 2>/dev/null || true
-sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;" 2>/dev/null || true
+# 4. Database
+echo "[4/7] Database — SQLite по умолчанию (файл /opt/featly/hub/featly.db)"
+echo "      Для PostgreSQL: USE_POSTGRES=1 bash deploy-hub.sh"
+if [ "${USE_POSTGRES:-0}" = "1" ]; then
+    sudo -u postgres psql -c "CREATE USER $DB_USER WITH PASSWORD '$DB_PASS';" 2>/dev/null || true
+    sudo -u postgres psql -c "CREATE DATABASE $DB_NAME OWNER $DB_USER;" 2>/dev/null || true
+    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;" 2>/dev/null || true
+    # переключаем unit на PostgreSQL
+    sed -i "s|sqlite+aiosqlite:///opt/featly/hub/featly.db|postgresql+asyncpg://featly:featly@localhost:5432/featly|" /etc/systemd/system/featly-hub.service
+fi
 
-# 5. Database
-echo "[5/7] Database — таблицы создаются автоматически (create_all в lifespan)"
-# Если нужна миграция позже: alembic upgrade head
+# 5. Таблицы создаются автоматически при старте (create_all в lifespan)
 
-# 6. Create uploads directory
-echo "[6/7] Setting up directories..."
+# 5. Create uploads directory
+echo "[5/6] Setting up directories..."
 sudo -u featly mkdir -p "$APP_DIR/hub/uploads"
 sudo -u featly mkdir -p "$APP_DIR/hub/logs"
 
-# 7. Install systemd service
-echo "[7/7] Installing systemd service..."
+# 6. Install systemd service
+echo "[6/6] Installing systemd service..."
 cp "$APP_DIR/scripts/featly-hub.service" /etc/systemd/system/
 sed -i "s|change-me-in-production|$WS_SECRET|g" /etc/systemd/system/featly-hub.service
 systemctl daemon-reload

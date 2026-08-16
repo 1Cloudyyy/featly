@@ -1,12 +1,13 @@
-"""Order model — main trade order."""
+﻿"""Order model — main trade order."""
 
 import enum
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, Integer, String, func
+from sqlalchemy import Enum, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
+from app.models.types import TZDateTime
 
 
 class OrderStatus(str, enum.Enum):
@@ -32,8 +33,8 @@ class Order(Base):
     )
     proof_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        TZDateTime(timezone=True), server_default=func.now()
     )
     completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        TZDateTime(timezone=True), nullable=True
     )

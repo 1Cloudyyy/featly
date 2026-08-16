@@ -1,12 +1,13 @@
-"""Bot model — Windows Engine instances."""
+﻿"""Bot model — Windows Engine instances."""
 
 import enum
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, String, func
+from sqlalchemy import Boolean, Enum, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
+from app.models.types import TZDateTime
 
 
 class BotStatus(str, enum.Enum):
@@ -25,5 +26,5 @@ class Bot(Base):
     )
     ws_connected: Mapped[bool] = mapped_column(Boolean, default=False)
     last_seen: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        TZDateTime(timezone=True), nullable=True
     )

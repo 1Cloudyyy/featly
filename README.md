@@ -115,7 +115,8 @@ featly/
 
 Environment variables (prefix `FEATLY_`):
 
-- `FEATLY_DATABASE_URL` — PostgreSQL connection string
+- `FEATLY_DATABASE_URL` — SQLite (по умолчанию `sqlite+aiosqlite:///./featly.db`) или PostgreSQL
+  (`postgresql+asyncpg://...`)
 - `FEATLY_WS_SECRET` — WebSocket authentication secret
 - `FEATLY_API_KEY` — REST API key (X-API-Key, обязателен для плагина и админки)
 - `FEATLY_CORS_ORIGINS` — Allowed CORS origins
@@ -126,14 +127,14 @@ Edit `engine/profiles/mm2.yaml` for screen regions and trade flow settings.
 
 ## Tech Stack
 
-- Python 3.12, FastAPI, SQLAlchemy 2.0, Alembic, asyncpg
+- Python 3.12, FastAPI, SQLAlchemy 2.0
+- SQLite (по умолчанию) / PostgreSQL (опционально), асинхронный драйвер aiosqlite/asyncpg
 - OpenCV, pydirectinput-rgx, mss, pytesseract, PyWinCtl
-- PostgreSQL 15, Docker
 - GitHub Actions CI (ruff + mypy)
 
 ## Deployment
 
-### VPS (Hub + PostgreSQL)
+### VPS (Hub — SQLite по умолчанию)
 
 ```bash
 # One-click deploy

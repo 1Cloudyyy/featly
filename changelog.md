@@ -6,6 +6,20 @@
 
 ## [9.0.0] — 2026-08-16 (v3 в разработке)
 
+### Шаг 5 — SQLite по умолчанию, лёгкий бэкенд (коммит `…`)
+- **SQLite** — БД по умолчанию (`sqlite+aiosqlite:///./featly.db`), PostgreSQL — опционально
+  (через `FEATLY_DATABASE_URL` / `USE_POSTGRES=1`)
+- Новый тип **`TZDateTime`** (SQLite хранит naive UTC, отдаёт aware UTC; PostgreSQL без изменений) —
+  применён во всех моделях; проверено смоук-тестом (create_all, server_default, запрос статистики)
+- `db.py`: `check_same_thread=False` для SQLite
+- **Alembic удалён** (пустые версии, таблицы создаёт `create_all` в lifespan)
+- `hub/requirements.txt`: добавлен `aiosqlite`
+- Деплой: `featly-hub.service` без зависимости от PostgreSQL, SQLite в `ReadWritePaths`;
+  `deploy-hub.sh` — шаг БД опционален (SQLite по умолчанию)
+- `.env.example`/README актуализированы (SQLite — дефолт)
+
+---
+
 ### Шаг 4 — принудительная выдача и отмена заказов (коммит `…`)
 - **Hub**: `POST /orders/{id}/force` (FORCE_TRADE движку, с очередь при офлайне)
   и `POST /orders/{id}/cancel` (CANCELLED + удаление pending_trades + REMOVE_WAITLIST;

@@ -9,7 +9,9 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     model_config = {"env_prefix": "FEATLY_"}
 
-    database_url: str = "postgresql+asyncpg://featly:featly@localhost:5432/featly"
+    # SQLite — по умолчанию (лёгкий деплой на VDS без контейнеров).
+    # PostgreSQL: postgresql+asyncpg://featly:featly@localhost:5432/featly
+    database_url: str = "sqlite+aiosqlite:///./featly.db"
     ws_secret: str = Field(default_factory=lambda: secrets.token_urlsafe(32))
     api_key: str = Field(default_factory=lambda: secrets.token_urlsafe(32))
     cors_origins: list[str] = ["http://localhost:3000"]

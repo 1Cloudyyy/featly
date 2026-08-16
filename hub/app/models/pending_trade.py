@@ -1,12 +1,13 @@
-"""PendingTrade model — persistent waitlist for Windows Engine."""
+﻿"""PendingTrade model — persistent waitlist for Windows Engine."""
 
 import enum
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, func
+from sqlalchemy import Enum, ForeignKey, Index, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
+from app.models.types import TZDateTime
 
 
 class PendingTradeStatus(str, enum.Enum):
@@ -29,7 +30,7 @@ class PendingTrade(Base):
         Enum(PendingTradeStatus), default=PendingTradeStatus.WAITING, index=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        TZDateTime(timezone=True), server_default=func.now()
     )
 
     __table_args__ = (
