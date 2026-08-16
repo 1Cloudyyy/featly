@@ -13,6 +13,7 @@ from app.models import Base
 from app.routes.bots import router as bots_router
 from app.routes.inventory import router as inventory_router
 from app.routes.orders import OrderStatus, pending_router, router as orders_router
+from app.routes.stats import router as stats_router
 from app.ws.engine import router as ws_router
 
 
@@ -31,8 +32,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Featly Backend",
-    version="2.2.0",
+    title="Featly Hub",
+    version="3.0.0",
     description="Auto-delivery system for Roblox MM2 items",
     lifespan=lifespan,
 )
@@ -50,6 +51,7 @@ app.include_router(orders_router)
 app.include_router(pending_router)
 app.include_router(inventory_router)
 app.include_router(bots_router)
+app.include_router(stats_router)
 
 # WebSocket
 app.include_router(ws_router)
@@ -83,5 +85,5 @@ async def health_detailed() -> dict:
     return {
         "status": "ok" if db_ok else "degraded",
         "database": "connected" if db_ok else "disconnected",
-        "version": "2.2.0",
+        "version": "3.0.0",
     }

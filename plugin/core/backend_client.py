@@ -172,6 +172,61 @@ class BackendClient:
         log.warning("get_item: %s → %s (err=%s)", item_key, s, err)
         return None
 
+    async def upsert_item(
+        self,
+        item_key: str,
+        name: str,
+        count: int = 0,
+        low_stock_threshold: int = 3,
+    ) -> bool:
+        payload = {
+            "item_key": item_key,
+            "name": name,
+            "count": count,
+            "low_stock_threshold": low_stock_threshold,
+        }
+        s, data, err = await self._request("POST", "/inventory", json=payload, expected=(200, 201))
+        if s in (200, 201):
+            log.info("upsert_item: %s создан/обновлён (%s шт)", item_key, count)
+            return True
+        log.error("upsert_item: %s → %s (err=%s)", item_key, s, err)
+        return False
+
+    async def update_item_count(self, item_key: str, count: int) -> bool:
+        s, _, err = await self._request("PATCH", f"/inventory/{item_key}", json={"count": count})
+        if s == 200:
+            log.info("update_item_count: %s → %s", item_key, count)
+            return True
+        log.error("update_item_count: %s → %s (err=%s)", item_key, s, err)
+        return False
+
+    async def update_item_threshold(self, item_key: str, threshold: int) -> bool:
+        s, _, err = await self._request(
+            "PATCH", f"/inventory/{item_key}", json={"low_stock_threshold": threshold}
+        )
+        if s == 200:
+            log.info("update_item_threshold: %s → %s", item_key, threshold)
+            return True
+        log.error("update_item_threshold: %s → %s (err=%s)", item_key, s, err)
+        return False
+
+    async def delete_item(self, item_key: str) -> bool:
+        s, _, err = await self._request("DELETE", f"/inventory/{item_key}", expected=(204,))
+        if s == 204:
+            log.info("delete_item: %s удалён", item_key)
+            return True
+        log.warning("delete_item: %s → %s (err=%s)", item_key, s, err)
+        return False
+
+    # --- Stats ---
+
+    async def get_stats(self) -> dict | None:
+        s, data, err = await self._request("GET", "/stats")
+        if s == 200:
+            return data
+        log.error("get_stats → %s (err=%s)", s, err)
+        return None
+
     async def set_item_threshold(self, item_key: str, threshold: int) -> bool:
         s, _, err = await self._request(
             "PATCH", f"/inventory/{item_key}", json={"low_stock_threshold": threshold}

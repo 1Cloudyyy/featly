@@ -69,3 +69,33 @@ async def create_item(
     await session.commit()
     await session.refresh(item)
     return item
+
+
+async def upsert_item(
+    session: AsyncSession,
+    item_key: str,
+    name: str,
+    count: int = 0,
+    low_stock_threshold: int = 3,
+) -> InventoryItem:
+    """Создать предмет или обновить существующий (по item_key)."""
+    item = await get_item(session, item_key)
+    if item is None:
+        return await create_item(
+            session, item_key, name, count, low_stock_threshold
+        )
+    item.name = name
+    item.count = count
+    item.low_stock_threshold = low_stock_threshold
+    await session.commit()
+    await session.refresh(item)
+    return item
+
+
+async def delete_item(session: AsyncSession, item_key: str) -> bool:
+    item = await get_item(session, item_key)
+    if item is None:
+        return False
+    await session.delete(item)
+    await session.commit()
+    return True

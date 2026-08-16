@@ -16,6 +16,7 @@ from .core import order_manager
 from .core.backend_client import backend_client
 from .handlers.funpay import on_new_message, on_new_order, on_order_status_changed
 from .handlers.telegram import router as tg_router
+from .handlers.telegram_admin import router as admin_router
 from .meta import *  # noqa: F401,F403  — метаданные модуля (требование funpay-universal)
 
 log = logging.getLogger(f"{NAME}.module")
@@ -84,4 +85,4 @@ FUNPAY_EVENT_HANDLERS = {
     EventTypes.ORDER_STATUS_CHANGED: [on_order_status_changed],
 }
 
-TELEGRAM_BOT_ROUTERS = [tg_router]
+TELEGRAM_BOT_ROUTERS = [tg_router, admin_router]

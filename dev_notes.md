@@ -86,6 +86,12 @@ featly/
 - Telegram-роутеры модуля сливаются с роутером бота → префиксы callback'ов уникальные (`featly_*`)
 - Плагин = папка-модуль (в v3 — `plugin/` в корне репо, устанавливается ботом как модуль `featly`)
 
+### Telegram-панель (шаг 1, выполнена 2026-08-16)
+- `plugin/handlers/telegram_admin.py`, команда `/admin`, доступ только по `admin_tg_id`
+- Экраны: движок / инвентарь (CRUD FSM) / заказы (waitlist) / статистика / настройки / диагностика
+- Hub-эндпоинты панели: `GET /stats`, `POST /inventory`, `DELETE /inventory/{key}`
+- Callback-префикс: `cb:*`; FSM-стейты `PanelStates`
+
 ---
 
 ## Журнал обязательного сопровождения

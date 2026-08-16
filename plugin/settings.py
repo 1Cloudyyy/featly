@@ -26,6 +26,7 @@ DEFAULT_SETTINGS = {
     "alert_on_zero": True,
     "bot_id": "bot_main",
     "static_server_link": "",
+    "admin_tg_id": "",
 }
 
 

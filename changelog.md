@@ -6,6 +6,26 @@
 
 ## [9.0.0] — 2026-08-16 (v3 в разработке)
 
+### Шаг 1 — Telegram-панель `/admin` (коммит `…`)
+- Новый `plugin/handlers/telegram_admin.py`: панель с экранами
+  **движок / инвентарь / заказы / статистика / настройки / диагностика**
+  (каркас — aiogram Router + FSM + кнопки с текущими значениями, паттерн playerok)
+- Инвентарь: ✅ добавление предмета (FSM: key → name → count → порог),
+  изменение количества/порога, удаление; предупреждение ⚠️ при `count <= threshold`
+- Заказы: список waitlist + «убрать из waitlist» (удаление pending_trade)
+- Статистика: новый hub-эндпоинт **`GET /stats`** (всего/выполнено/сегодня/отмены/waitlist/движки)
+- Настройки: редактирование полей из settings.json через FSM (включая `admin_tg_id` —
+  включается вручную в файле модуля)
+- Диагностика: проверка hub, cookie, статуса движка
+- Ограничение доступа: только `admin_tg_id` (лог-запись при чужих вызовах)
+- **Hub**: новый `routes/stats.py`; `POST /inventory` (upsert) и `DELETE /inventory/{item_key}`;
+  `InventoryCreate`/`StatsResponse` схемы; версия API → 3.0.0
+- `backend_client`: методы `get_stats`, `upsert_item`, `delete_item`, `update_item_count`,
+  `update_item_threshold`
+- Все действия панели логируются (кто, что, результат)
+
+---
+
 ### Шаг 0 — миграция плагина на интерфейс funpay-universal 1.17 (коммит `…`)
 - Плагин переписан со старого интерфейса (`EVENT_HANDLERS`, `TELEGRAM_ROUTERS`, `(deal, acc)`)
   на новый: **`BOT_EVENT_HANDLERS`** / **`FUNPAY_EVENT_HANDLERS`** (ключи — enum `EventTypes`) /

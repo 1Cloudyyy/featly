@@ -61,6 +61,13 @@ class PendingTradeResponse(BaseModel):
 
 # --- Inventory ---
 
+class InventoryCreate(BaseModel):
+    item_key: str
+    name: str
+    count: int = 0
+    low_stock_threshold: int = 3
+
+
 class InventoryUpdate(BaseModel):
     count: int | None = None
     low_stock_threshold: int | None = None
@@ -90,3 +97,16 @@ class BotResponse(BaseModel):
     last_seen: datetime | None
 
     model_config = {"from_attributes": True}
+
+
+# --- Stats ---
+
+class StatsResponse(BaseModel):
+    total_orders: int
+    completed: int
+    completed_today: int
+    cancelled: int
+    waitlist_count: int
+    inventory_count: int
+    online_bots: int
+    total_bots: int

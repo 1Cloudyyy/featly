@@ -89,9 +89,12 @@ featly/
 | POST | /pending_trades | Create pending trade |
 | DELETE | /pending_trades/:id | Delete pending trade |
 | GET | /inventory | List inventory |
+| POST | /inventory | Create/update item (upsert) |
 | PATCH | /inventory/:item | Update item |
+| DELETE | /inventory/:item | Delete item |
 | GET | /bots | List bots |
 | PATCH | /bots/:id/heartbeat | Bot heartbeat |
+| GET | /stats | Статистика (заказы, выданные сегодня, waitlist, движки) |
 
 ### WebSocket (Engine)
 
