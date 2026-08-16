@@ -1,61 +1,46 @@
-# Dev Notes — Featly v2.2
+# Dev Notes — Featly
 
 > Заметки по разработке, архитектурные решения, полезная информация.
+> v2.2 работает; направление v3 зафиксировано в `docs/FEATLY_v3_CONCEPT.md`.
 
 ---
 
-## Структура проекта (план)
+## Структура проекта — целевая (v3, решения 2026-08-16)
 
 ```
-auto-item-roblox/
-├── plugin/                  # Featly Plugin (модуль для funpay-universal)
-│   ├── __init__.py
-│   ├── meta.py
-│   ├── settings.py
-│   ├── data.py
-│   ├── requirements.txt
-│   ├── core/
-│   │   ├── roblox_api.py
-│   │   ├── backend_client.py
-│   │   └── order_manager.py
+featly/
+├── README.md
+├── pyproject.toml              # ruff/mypy/black для всего Python
+├── .env.example                # все секреты (FEATLY_API_KEY, WS_SECRET, TG_ID...)
+├── docs/
+│   ├── FEATLY_v3_CONCEPT.md    # концепт v3 (архитектура, панель, роадмап)
+│   └── legacy/                 # старые v2-документы (аудиты, анализ)
+│
+├── plugin/                     # модуль funpay-universal 1.17 (имя = featly)
+│   ├── __init__.py             # BOT/FUNPAY/TELEGRAM_BOT_ROUTERS-хендлеры
+│   ├── meta.py  settings.py  data.py
 │   ├── handlers/
-│   │   ├── funpay.py
-│   │   └── telegram.py
-│   └── utils/
-│       └── alerts.py
+│   │   ├── funpay.py           # события сделок/сообщений
+│   │   └── telegram_admin.py   # панель (ФCМ-экраны)
+│   └── core/
+│       ├── backend_client.py   # REST к hub
+│       ├── roblox_api.py       # ник → id, заявка в друзья
+│       └── lots_sync.py        # авто-поиск лота + «Наличие»
 │
-├── backend/                 # Featly Backend (FastAPI)
-│   ├── app/
-│   │   ├── main.py
-│   │   ├── models/
-│   │   ├── routes/
-│   │   ├── services/
-│   │   ├── ws/
-│   │   └── config.py
-│   ├── alembic/
-│   ├── requirements.txt
-│   └── alembic.ini
+├── hub/                        # «центр управления» (бывший backend; SQLite)
+│   ├── app/  (models/ routes/ services/ ws/ main.py)
+│   └── tests/
 │
-├── engine/                  # Windows Engine
-│   ├── main.py
-│   ├── config.py
-│   ├── screen_capture.py
-│   ├── cv_matcher.py
-│   ├── trade_flow.py
-│   ├── anti_afk.py
-│   ├── ws_client.py
-│   ├── templates/
-│   ├── profiles/
-│   └── requirements.txt
+├── engine/                     # Windows Engine
+│   ├── main.py  trade_flow.py  ws_client.py  cv_matcher.py  ...
+│   └── profiles/ templates/ tests/
 │
-├── docs/                    # Документация
-│   ├── FEATLY_v2_2_final.md
-│   └── FEATLY_v2_2_repo_analysis.md
-│
-├── dev_notes.md
-├── changelog.md
-└── FEATLY_AI_PROMPT.md
+├── legacy/web-admin/           # React-админка «на антресоль» (вне compose)
+└── scripts/                    # systemd, планировщик, logrotate
 ```
+
+> Решения: `backend/` → `hub/`; React-админка → `legacy/web-admin/`; один git-репозиторий.
+> Перестройка — шаг 0a роадмапа v3 (пока не выполнена, `backend/` и `admin/` на месте).
 
 ---
 
@@ -83,10 +68,32 @@ auto-item-roblox/
 - Для matchTemplate лучше сразу grayscale
 - Шаблоны хранятся в `engine/templates/`
 
-### funpay-universal — интеграция
-- EventTypes: NEW_DEAL, NEW_MESSAGE, ITEM_PAID, DEAL_CONFIRMED, DEAL_ROLLED_BACK
-- Chat: `acc.send_message(chat_id, text)`
-- Плагин = папка в `modules/featly/`
+### funpay-universal — интеграция (проверено по коду release 1.17)
+- **Плагин сейчас написан под старый интерфейс и НЕ работает с 1.17** (шаг 0 миграции v3):
+  - было: `EVENT_HANDLERS`, `TELEGRAM_ROUTERS`, хендлеры `(deal, acc)`, `acc.send_message(...)`
+  - стало: `FUNPAY_EVENT_HANDLERS` (ключи — enum `EventTypes`), `BOT_EVENT_HANDLERS`
+    (`ON_MODULE_ENABLED`/`ON_MODULE_DISABLED`), `TELEGRAM_BOT_ROUTERS`, хендлеры `(bot: FunPayBot, event)`,
+    отправка через `bot.send_message(chat_id, text, ...)`
+- Доступ к аккаунту: `from fpbot.funpaybot import get_funpay_bot` → `get_funpay_bot().account`
+- **События в коде 1.17:** регистрируются `NEW_MESSAGE`, `NEW_ORDER`, `ORDER_STATUS_CHANGED`.
+  README заявляет `NEW_DEAL`/`ITEM_PAID`/`DEAL_CONFIRMED`/`DEAL_ROLLED_BACK` — этих членов
+  НЕТ в бандле `EventTypes`; сверяться с реальным пакетом при миграции.
+- Авто-поиск лота: в `FunPayBot` уже есть `get_lot_by_title(title, subcategory_id=None)`.
+  Изменение «Наличия»: `account.get_lot_fields(lot_id)` → `fields.amount = n` → `account.save_lot(fields)`;
+  при `count == 0` → `fields.active = False`.
+- Telegram-роутеры модуля сливаются с роутером бота → префиксы callback'ов уникальные (`featly_*`)
+- Плагин = папка-модуль (в v3 — `plugin/` в корне репо, устанавливается ботом как модуль `featly`)
+
+---
+
+## Журнал обязательного сопровождения
+
+Чтобы проект не расходился с реальностью, при каждой заметной работе обновляются:
+1. **git-коммит** — каждое изменение;
+2. **`changelog.md`** — запись о значимых изменениях (дата + версия/подсистема);
+3. **`dev_notes.md`** — архитектурные факты, решения, открытые вопросы;
+4. **`README.md`** — структура, быстрый старт, конфигурация;
+5. идеально — push на GitHub после коммита.
 
 ---
 

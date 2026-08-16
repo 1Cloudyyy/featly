@@ -1,6 +1,10 @@
-# Featly v2.2
+# Featly
 
 Auto-delivery system for Roblox MM2 items via FunPay.
+
+> Текущая версия: **v2.2** (работает). Следующая версия **v3** — в разработке:
+> Telegram-панель вместо React-админки, авто-заполнение «Наличия» в лотах FunPay,
+> SQLite вместо PostgreSQL. Концепт: [`docs/FEATLY_v3_CONCEPT.md`](docs/FEATLY_v3_CONCEPT.md).
 
 ## Architecture
 
@@ -9,7 +13,7 @@ FunPay → Plugin (funpay-universal) → Backend (FastAPI) → Engine (Windows)
 ```
 
 - **Plugin** — module for funpay-universal, handles FunPay events and Telegram commands
-- **Backend** — FastAPI server with REST API and WebSocket for Engine communication
+- **Backend** — FastAPI server (REST + WebSocket for Engine), центр управления (waitlist, инвентарь)
 - **Engine** — Windows automation (OpenCV, pydirectinput, mss) for MM2 trades
 
 ## Quick Start
@@ -28,8 +32,8 @@ cd backend
 python3.12 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-alembic upgrade head
 uvicorn app.main:app --host 0.0.0.0 --port 8000
+# Таблицы в БД создаются автоматически при старте (Base.metadata.create_all в lifespan)
 
 # Engine (Windows)
 cd engine
@@ -64,7 +68,8 @@ featly/
 │   ├── profiles/    # Game-specific configs (YAML)
 │   ├── templates/   # OpenCV template images
 │   └── proofs/      # Trade proof screenshots
-├── docs/            # Architecture documentation
+├── admin/           # Web-admin (React) — планируется к выводу в legacy/ в v3
+├── docs/            # Архитектура и документация (концепт v3)
 └── scripts/         # Setup scripts
 ```
 
@@ -109,6 +114,7 @@ Environment variables (prefix `FEATLY_`):
 
 - `FEATLY_DATABASE_URL` — PostgreSQL connection string
 - `FEATLY_WS_SECRET` — WebSocket authentication secret
+- `FEATLY_API_KEY` — REST API key (X-API-Key, обязателен для плагина и админки)
 - `FEATLY_CORS_ORIGINS` — Allowed CORS origins
 
 ### Engine
@@ -166,3 +172,11 @@ journalctl -u featly-backend -f
 # Engine logs
 tail -f engine/logs/engine_*.log
 ```
+
+## Dev & Docs
+
+- [`docs/FEATLY_v3_CONCEPT.md`](docs/FEATLY_v3_CONCEPT.md) — концепт v3 (архитектура, панель, роадмап)
+- [`changelog.md`](changelog.md) — журнал изменений
+- [`dev_notes.md`](dev_notes.md) — архитектурные решения и технические заметки
+
+Значимые изменения фиксируются коммитом + записями в качестве сопроводительной документации.

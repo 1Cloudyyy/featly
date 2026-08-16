@@ -1,8 +1,31 @@
-# Changelog — Featly v2.2
+# Changelog — Featly
 
 > Все значимые изменения проекта фиксируются здесь.
 
 ---
+
+## [8.0.0] — 2026-08-16
+
+### Исправлено (аудит v2.2, коммит `3040cdd`)
+- Engine: зарегистрированы callbacks `on_trade_completed`/`on_trade_failed` → `ws_client.report_*` (замыкание цикла «выдача → уведомление бэкенда»)
+- Backend WS: починен keepalive (`ws` → `websocket`, был NameError), добавлена очередь сообщений для офлайн-движка, доставка накопленного при реконнекте
+- Backend: оповещение движка о новых/удалённых `pending_trade` (`WAIT_FOR_TRADE`/`REMOVE_WAITLIST`)
+- Backend: `trade_completed` — валидация переходов статуса, списание инвентаря, удаление из waitlist только при успехе (политика retry при фейле)
+- Backend: `create_all` при старте в `lifespan` (таблицы создаются без Alembic), `engine.dispose()` на shutdown
+- Admin: передача `X-API-Key` (из `VITE_API_KEY`), прокинут в docker-compose
+- Engine: `waitlist_manager` обновляется по `WAIT_FOR_TRADE`/`REMOVE_WAITLIST` (фактически предыдущий путь был мёртвым)
+- CI/mypy: `callable` → `Callable` аннотации
+
+### Документация и направление v3
+- Создан `docs/FEATLY_v3_CONCEPT.md` — концепт новой версии:
+  - Архитектура: VDS-центр (плагин + hub) + движки на Mini-ПК через WS
+  - Панель админки → Telegram (вместо React)
+  - Автозаполнение «Наличия» в лотах FunPay (авто-поиск лота по названию)
+  - SQLite вместо PostgreSQL, poll вместо push
+  - **Выявлена несовместимость плагина с последней версией funpay-universal (1.17)**:
+    старая модель `EVENT_HANDLERS`/`(deal, acc)` → новая `FUNPAY_EVENT_HANDLERS`/`(bot, event)` — шаг 0 миграции
+  - Целевая структура файлов: `backend/` → `hub/`, React-админка → `legacy/web-admin/`, один репозиторий
+- Решения продавца (2026-08-16): плагин на VDS; Telegram-админка — достаточно; Mini-ПК под будущую инфраструктуру
 
 ## [0.0.0] — 2025-08-05
 
