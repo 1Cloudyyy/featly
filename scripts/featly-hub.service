@@ -27,7 +27,7 @@ SyslogIdentifier=featly-hub
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/featly/hub/uploads /opt/featly/hub/logs /opt/featly/hub/featly.db
+ReadWritePaths=/opt/featly/hub
 
 [Install]
 WantedBy=multi-user.target
