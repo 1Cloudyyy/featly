@@ -92,6 +92,13 @@ featly/
 - Hub-эндпоинты панели: `GET /stats`, `POST /inventory`, `DELETE /inventory/{key}`
 - Callback-префикс: `cb:*`; FSM-стейты `PanelStates`
 
+### Автозаполнение «Наличия» лотов (шаг 3, выполнена 2026-08-16)
+- `plugin/core/lots_sync.py`: `get_lot_by_title` → fallback fuzzy → `get_lot_fields`/`save_lot`
+- Кэш привязок item_key → lot_id хранится в `settings.lot_map`
+- Настройка `autosync_lots` (вкл по умолчанию) — автосинк при добавлении/изменении количества
+- Панель: «🛍 Синхронизировать лот», «📎 Привязать лот вручную» (FSM `lot_id`)
+- `data/settings.json` создаётся автоматически при `ON_MODULE_ENABLED` (`ensure_settings`)
+
 ---
 
 ## Журнал обязательного сопровождения

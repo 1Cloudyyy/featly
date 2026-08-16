@@ -34,8 +34,12 @@ async def on_module_enabled(module) -> None:
     _module = module
     log.info("Модуль %s v%s включён", NAME, VERSION)
 
-    hub_tp = load_settings_url()
-    log.info("Целевой hub: %s | bot_id=%s", hub_tp[0], hub_tp[1])
+    from .settings import SETTINGS_FILE, ensure_settings
+
+    settings = ensure_settings()  # создаёт data/settings.json, если его нет
+    log.info("Целевой hub: %s | bot_id=%s", settings.get("backend_url"), settings.get("bot_id"))
+    if not settings.get("admin_tg_id"):
+        log.warning("admin_tg_id не задан (файл: %s) — панель /admin недоступна", SETTINGS_FILE)
 
     # Проверка доступности hub при старте
     ok = await backend_client.health()
@@ -64,13 +68,6 @@ async def on_telegram_bot_init(tgbot) -> None:
         log.info("Telegram: команда /admin зарегистрирована")
     except Exception as e:
         log.warning("Не удалось зарегистрировать команды Telegram: %s", e)
-
-
-def load_settings_url():
-    from .settings import load_settings
-
-    s = load_settings()
-    return s.get("backend_url", "http://localhost:8000"), s.get("bot_id", "bot_main")
 
 
 BOT_EVENT_HANDLERS = {

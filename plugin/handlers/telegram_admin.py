@@ -18,6 +18,7 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from ..core.backend_client import backend_client
+from ..core.lots_sync import cache_lot, set_lot_amount, sync_item
 from ..meta import NAME
 from ..settings import load_settings, update_settings
 
@@ -34,6 +35,7 @@ SETTING_FIELDS: dict[str, str] = {
     "telegram_alert_chat_id": "🔔 Чат алертов",
     "admin_tg_id": "🆔 Admin TG ID",
     "static_server_link": "🔗 Ссылка сервера",
+    "autosync_lots": "🛍 Авто-синк лотов",
 }
 
 
@@ -45,6 +47,7 @@ class PanelStates(StatesGroup):
     item_count = State()
     item_threshold = State()
     setting_value = State()
+    lot_id = State()
 
 
 # ---------------------------------------------------------------- helpers
@@ -145,6 +148,8 @@ def _kb_inv_item(key: str):
         [
             [("🔢 Количество", f"cb:inv_count:{key}")],
             [("📉 Порог", f"cb:inv_thr:{key}")],
+            [("🛍 Синхронизировать лот", f"cb:inv_lot_sync:{key}")],
+            [("📎 Привязать лот вручную", f"cb:inv_lot_bind:{key}")],
             [("🗑 Удалить", f"cb:inv_del:{key}")],
             [("⬅️ К списку", "cb:inv")],
         ]
@@ -294,6 +299,89 @@ async def cb_inv_del(cb: CallbackQuery) -> None:
     await _screen(cb, await _inv_text(), _kb_inv(items))
 
 
+# --- синхронизация «Наличия» лота ---
+
+async def _item_for_sync(key: str) -> dict | None:
+    item = await backend_client.get_item(key)
+    if item is None:
+        log.error("Панель: синк лота — предмет %s не найден в hub", key)
+    return item
+
+
+async def _maybe_autosync(item_key: str, name: str, count: int) -> str:
+    """Автосинхронизация «Наличия» лота при изменении инвентаря (по настройке)."""
+    if not load_settings().get("autosync_lots", True):
+        return ""
+    result = await sync_item(item_key, name, count)
+    log.info("Автосинк лота после изменения инвентаря %s → %s", item_key, result)
+    return f"\n🛍 <b>Лот:</b> {result.get('reason')}" if result.get("reason") else ""
+
+
+@router.callback_query(F.data.startswith("cb:inv_lot_sync:"))
+async def cb_inv_lot_sync(cb: CallbackQuery) -> None:
+    if not _is_admin(cb.from_user.id):
+        await cb.answer("⛔ Нет доступа", show_alert=True)
+        return
+    key = cb.data.split(":", 2)[2]
+    item = await _item_for_sync(key)
+    if item is None:
+        await cb.answer("❌ Предмет не найден в hub", show_alert=True)
+        return
+    await cb.answer("⏳ Синхронизирую лот...")
+    result = await sync_item(key, item.get("name") or key, item.get("count", 0))
+    log.info("Панель: синк лота %s → %s", key, result)
+    emoji = "✅" if result.get("ok") else "❌"
+    await _screen(cb, f"{emoji} Синк лота для `{key}`:\n{result.get('reason')}", _kb_inv_item(key))
+
+
+@router.callback_query(F.data.startswith("cb:inv_lot_bind:"))
+async def cb_inv_lot_bind(cb: CallbackQuery, state: FSMContext) -> None:
+    if not _is_admin(cb.from_user.id):
+        await cb.answer("⛔ Нет доступа", show_alert=True)
+        return
+    key = cb.data.split(":", 2)[2]
+    await state.clear()
+    await state.set_state(PanelStates.lot_id)
+    await state.update_data(bind_key=key)
+    log.info("Панель: ручная привязка лота для %s — запрашиваю lot_id", key)
+    await _screen(cb, f"📎 Введи ID лота FunPay для «{key}» (число из URL лота):", None)
+
+
+@router.message(PanelStates.lot_id)
+async def fsm_lot_id(message: Message, state: FSMContext) -> None:
+    if message.from_user is None:
+        return
+    if not _is_admin(message.from_user.id):
+        return
+    data = await state.get_data()
+    key = data.get("bind_key")
+    if key is None:
+        await state.clear()
+        return
+    try:
+        lot_id = int(message.text.strip())
+    except ValueError:
+        await message.answer("❌ lot_id должен быть числом. Попробуй ещё раз:")
+        return
+    await state.clear()
+
+    cache_lot(key, lot_id, key)
+    log.info("Панель: лот #%s привязан к %s", lot_id, key)
+    item = await _item_for_sync(key)
+    if item is None:
+        await message.answer(f"✅ Лот #{lot_id} привязан к «{key}»")
+        await _screen(message, await _main_text(), _kb_main())
+        return
+
+    ok = set_lot_amount(lot_id, item.get("count", 0))
+    if ok:
+        log.info("Панель: наличие лота #%s → %s", lot_id, item.get("count", 0))
+        await message.answer(f"✅ Лот #{lot_id} привязан, наличие обновлено: {item.get('count', 0)}")
+    else:
+        await message.answer(f"⚠️ Лот #{lot_id} привязан, но наличие обновить не удалось (см. лог)")
+    await _screen(message, await _main_text(), _kb_main())
+
+
 # --- FSM: добавление предмета (item_key → name → count → threshold) ---
 
 @router.message(PanelStates.item_key)
@@ -346,9 +434,12 @@ async def fsm_item_count(message: Message, state: FSMContext) -> None:
         key = data["edit_key"]
         await state.clear()
         ok = await backend_client.update_item_count(key, count)
+        item = await backend_client.get_item(key)
+        name = item.get("name") if item else key
+        extra = await _maybe_autosync(key, name, count)
         if ok:
             log.info("Панель: количество %s → %s", key, count)
-            await message.answer(f"✅ Количество `{key}` = {count}")
+            await message.answer(f"✅ Количество `{key}` = {count}{extra}")
         else:
             log.error("Панель: не обновилось количество %s", key)
             await message.answer(f"❌ Не удалось обновить `{key}`")
@@ -402,8 +493,11 @@ async def fsm_item_threshold(message: Message, state: FSMContext) -> None:
     )
     await state.clear()
     if created:
+        extra = await _maybe_autosync(
+            data["item_key"], data.get("item_name", data["item_key"]), data.get("item_count", 0)
+        )
         log.info("Панель: предмет добавлен %s (%s шт)", data["item_key"], data.get("item_count", 0))
-        await message.answer(f"✅ «{data.get('item_name', data['item_key'])}» добавлен")
+        await message.answer(f"✅ «{data.get('item_name', data['item_key'])}» добавлен{extra}")
     else:
         log.error("Панель: upsert_item не удался (key=%s)", data["item_key"])
         await message.answer("❌ Не удалось сохранить предмет")
@@ -490,6 +584,8 @@ async def cb_settings(cb: CallbackQuery) -> None:
             value = "🟢 установлен" if value else "🔴 пусто"
         elif field == "low_stock_threshold":
             value = str(value)
+        elif field == "autosync_lots":
+            value = "вкл" if value else "выкл"
         else:
             value = str(value)[:50] if value else "—"
         lines.append(f"{label}: {value}")
@@ -535,6 +631,8 @@ async def fsm_setting_value(message: Message, state: FSMContext) -> None:
             return
     if field == "admin_tg_id":
         value = value.replace("@", "").strip()
+    if field == "autosync_lots":
+        value = str(value).strip().lower() in ("1", "да", "yes", "y", "true", "вкл", "on")
 
     update_settings(**{field: value})
     log.info("Панель: настройка %s → %r", field, value)

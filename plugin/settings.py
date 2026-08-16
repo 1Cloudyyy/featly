@@ -27,6 +27,10 @@ DEFAULT_SETTINGS = {
     "bot_id": "bot_main",
     "static_server_link": "",
     "admin_tg_id": "",
+    # Автосинхронизация «Наличия» лотов FunPay при изменении инвентаря
+    "autosync_lots": True,
+    # Связки item_key → {lot_id, title} (кэш после авто-поиска / ручной привязки)
+    "lot_map": {},
 }
 
 
@@ -43,8 +47,19 @@ def load_settings() -> dict:
             return data
         except Exception as e:
             log.error("Не удалось прочитать настройки: %s — использую defaults", e)
-    log.warning("Файла настроек нет — создаю по умолчанию")
+    log.warning("Файла настроек нет — использую defaults")
     return DEFAULT_SETTINGS.copy()
+
+
+def ensure_settings() -> dict:
+    """Создать файл настроек с дефолтами, если его ещё нет. Вызывается при включении модуля."""
+    if not SETTINGS_FILE.exists():
+        save_settings(DEFAULT_SETTINGS.copy())
+        log.warning(
+            "Создан файл настроек %s — заполни admin_tg_id (свой Telegram ID) для доступа к панели /admin",
+            SETTINGS_FILE,
+        )
+    return load_settings()
 
 
 def save_settings(settings: dict) -> None:
