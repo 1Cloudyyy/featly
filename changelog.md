@@ -4,6 +4,26 @@
 
 ---
 
+## [9.0.0] — 2026-08-16 (v3 в разработке)
+
+### Шаг 0 — миграция плагина на интерфейс funpay-universal 1.17 (коммит `…`)
+- Плагин переписан со старого интерфейса (`EVENT_HANDLERS`, `TELEGRAM_ROUTERS`, `(deal, acc)`)
+  на новый: **`BOT_EVENT_HANDLERS`** / **`FUNPAY_EVENT_HANDLERS`** (ключи — enum `EventTypes`) /
+  **`TELEGRAM_BOT_ROUTERS`**; хендлеры теперь принимают `(bot, event)`, отправка через `bot.send_message()`
+- События: `NEW_MESSAGE` (диалоги+команды+системные сообщения), `NEW_ORDER` (оплаченный заказ → старт диалога),
+  `ORDER_STATUS_CHANGED` (CLOSED→completed, REFUNDED→cancelled); системные сообщения чата
+  (`ORDER_CONFIRMED`, `REFUND`, `PARTIAL_REFUND`) обрабатываются в `order_manager`
+- `meta.py`: `VERSION = 3.0.0`, имя модуля `featly` (PREFIX используется как тег)
+- **Полное логирование на каждом этапе** (`logging` + loguru-совместимость):
+  жизненный цикл модуля, каждое событие FunPay, шаги диалога покупателя,
+  HTTP-вызовы hub (метод/URL/статус/длительность/текст ошибки), Roblox API
+  (CSRF, резолв ника, заявка), все TG-команды, кэш заказов
+- `backend_client`: единый метод `_request` с трейсингом; новые методы `health`, `get_pending_trades`,
+  `set_item_threshold`, `get_bot`
+- `!отмена` получила реальный флоу (FSM-подтверждение → отмена заказа в hub); `!смена`/`!статус`/`!фото` — логируются с явным TODO
+
+---
+
 ## [8.0.0] — 2026-08-16
 
 ### Рефакторинг структуры (шаг 0a v3, коммит `…`)

@@ -1,107 +1,216 @@
-"""Order manager — orchestrates order lifecycle and dialogs."""
+"""Order manager — оркестрация диалогов и жизненного цикла заказа.
+
+Работает с объектами funpay-universal 1.17:
+  - bot:  FunPayBot (send_message, account)
+  - order: FunPayAPI.types.order заказа (id, buyer_username, status, ...)
+  - msg:   FunPayAPI.types.Message
+"""
 
 from __future__ import annotations
 
-import json
+import logging
 
-from loguru import logger
+from FunPayAPI.common.enums import MessageTypes, OrderStatuses
 
-from ..core.backend_client import backend_client
-from ..core.roblox_api import RobloxAuthError, request_friendship, validate_username
 from ..data import orders_cache
+from ..meta import NAME
 from ..settings import load_settings
+from .backend_client import backend_client
+from .roblox_api import RobloxAuthError, request_friendship, validate_username
 
-# Conversation states per chat_id
-_dialog_states: dict[int, dict] = {}
+log = logging.getLogger(f"{NAME}.orders")
+
+# Ник продавца в Roblox (fallback-текст в диалоге)
+OWNER_ROBLOX_NICK = "migufim"
+
+# Состояния диалогов: chat_id -> dict
+_dialog_states: dict = {}
 
 
-async def handle_new_deal(deal, acc) -> None:
-    """Called on FunPay NEW_DEAL event."""
-    chat_id = deal.chat_id
-    order_id = deal.order_id
-    items_raw = deal.items
+# ---------------------------------------------------------------- lifecycle
 
-    # Parse items — could be list of objects or strings
-    if isinstance(items_raw, list):
-        items = []
-        for item in items_raw:
-            if isinstance(item, dict):
-                items.append(item.get("title", str(item)))
-            else:
-                items.append(str(item))
-    else:
-        items = [str(items_raw)]
+async def init() -> None:
+    _dialog_states.clear()
+    log.info("order_manager инициализирован (диалоги сброшены)")
 
-    item_name = items[0] if items else "unknown"
 
-    # Check inventory
-    inventory = await backend_client.get_item(item_name.lower().replace(" ", "_"))
-    if inventory and inventory.get("count", 0) <= 0:
-        await acc.send_message(chat_id, "❌ Предмет закончился. Оформляю возврат...")
-        logger.warning(f"Item out of stock: {item_name}")
+async def shutdown() -> None:
+    _dialog_states.clear()
+    log.info("order_manager остановлен")
+
+
+# ---------------------------------------------------------------- helpers
+
+def _chat(bot, nickname: str):
+    """Найти чат FunPay по нику покупателя."""
+    try:
+        return bot.account.get_chat_by_name(nickname, True)
+    except Exception as e:
+        log.warning("Не удалось найти чат по нику '%s': %r", nickname, e)
+        return None
+
+
+def _parse_items(order) -> list[str]:
+    """Названия предметов из заказа (title или short_description через запятую)."""
+    title = getattr(order, "title", None) or getattr(order, "short_description", None)
+    if not title:
+        log.warning("Заказ %s без title/short_description — items=[order_id]", getattr(order, "id", "?"))
+        return [str(getattr(order, "id", "?"))]
+    items = [t.strip() for t in str(title).split(",") if t.strip()]
+    return items or [str(getattr(order, "id", "?"))]
+
+
+def _send(bot, chat_id: int, text: str) -> None:
+    """Отправить сообщение через FunPayBot с логированием результата."""
+    try:
+        bot.send_message(chat_id, text)
+        log.debug("Сообщение отправлено в чат %s: %r", chat_id, text[:60])
+    except Exception as e:
+        log.exception("Не удалось отправить сообщение в чат %s: %s", chat_id, e)
+
+
+# ---------------------------------------------------------------- события
+
+async def handle_new_order(bot, order) -> None:
+    """NEW_ORDER: оплаченный заказ — старт диалога."""
+    order_id_str = str(getattr(order, "id", ""))
+    buyer = getattr(order, "buyer_username", "") or "?"
+
+    chat = _chat(bot, buyer)
+    if chat is None:
+        log.error("NEW_ORDER %s: чат покупателя '%s' не найден — диалог невозможен", order_id_str, buyer)
+        return
+    chat_id = chat.id
+
+    if chat_id in _dialog_states:
+        log.info("NEW_ORDER %s: диалог в чате %s уже активен — пропускаю", order_id_str, chat_id)
         return
 
-    # Start dialog
+    items = _parse_items(order)
+    item_name = items[0]
+    log.info("NEW_ORDER %s: предметы=%s", order_id_str, items)
+
+    # Остаток на складе
+    inv = await backend_client.get_item(item_name.lower().replace(" ", "_"))
+    if inv and inv.get("count", 0) <= 0:
+        log.warning("NEW_ORDER %s: предмет '%s' закончился — отказ в выдаче", order_id_str, item_name)
+        _send(bot, chat_id, "❌ Предмет закончился. Оформляю возврат...")
+        return
+
     _dialog_states[chat_id] = {
         "step": "waiting_nickname",
-        "order_id": order_id,
+        "order_id": order_id_str,
         "items": items,
         "item_name": item_name,
     }
-    await acc.send_message(chat_id, "Привет! Напиши свой ник в Roblox:")
-    logger.info(f"New deal {order_id}, dialog started in chat {chat_id}")
+    log.info("Диалог запущен: chat=%s order=%s items=%s", chat_id, order_id_str, items)
+    _send(bot, chat_id, "Привет! Напиши свой ник в Roblox:")
 
 
-async def handle_new_message(message, acc) -> None:
-    """Called on FunPay NEW_MESSAGE event."""
-    chat_id = message.chat_id
-    text = message.text.strip()
-
-    if not text.startswith("!"):
-        # Check dialog state
-        state = _dialog_states.get(chat_id)
-        if state:
-            await _handle_dialog_step(chat_id, text, acc, state)
+async def handle_system_message(bot, msg) -> None:
+    """Системные сообщения чата (оплата / подтверждение / возврат)."""
+    chat_id = msg.chat_id
+    state = _dialog_states.get(chat_id)
+    if not state:
+        log.debug("Системное сообщение chat=%s, но активного диалога нет", chat_id)
         return
 
-    # Command handling
-    parts = text.split(maxsplit=1)
-    cmd = parts[0].lower()
-    arg = parts[1] if len(parts) > 1 else ""
-
-    if cmd == "!смена":
-        await _cmd_change_nick(chat_id, arg, acc)
-    elif cmd == "!фото":
-        await _cmd_screenshot(chat_id, acc)
-    elif cmd == "!помощь":
-        await _cmd_help(chat_id, acc)
-    elif cmd == "!отмена":
-        await _cmd_cancel(chat_id, acc)
-    elif cmd == "!статус":
-        await _cmd_status(chat_id, acc)
+    order_id_str = state.get("order_id")
+    if msg.type == MessageTypes.ORDER_CONFIRMED:
+        log.info("Покупатель подтвердил заказ %s (по системному сообщению)", order_id_str)
+        await _finalize_order(bot, chat_id, order_id_str, completed=True)
+    elif msg.type in (MessageTypes.REFUND, MessageTypes.PARTIAL_REFUND):
+        log.warning("По заказу %s оформлен возврат (по системному сообщению)", order_id_str)
+        await _finalize_order(bot, chat_id, order_id_str, completed=False)
 
 
-async def _handle_dialog_step(chat_id: int, text: str, acc, state: dict) -> None:
-    """Process a step in the nickname dialog."""
+async def handle_new_message(bot, msg) -> None:
+    """Пользовательское сообщение: команда или шаг диалога."""
+    chat_id = msg.chat_id
+    text = (msg.text or "").strip()
+    if not text:
+        return
+
+    if text.startswith("!"):
+        await _handle_command(bot, chat_id, text)
+        return
+
+    state = _dialog_states.get(chat_id)
+    if state:
+        await _handle_dialog_step(bot, chat_id, text, state)
+    else:
+        log.debug("Сообщение в чате %s без активного диалога: %r", chat_id, text[:60])
+
+
+async def handle_order_status(bot, order) -> None:
+    """ORDER_STATUS_CHANGED: CLOSED→completed, REFUNDED→cancelled."""
+    order_id_str = str(getattr(order, "id", ""))
+    status = getattr(order, "status", None)
+    log.info("Статус заказа %s → %s", order_id_str, status)
+
+    cached = orders_cache.get(order_id_str)
+    if cached is None:
+        log.warning("Заказ %s не найден в orders_cache (появился до рестарта?)", order_id_str)
+        return
+
+    if status == OrderStatuses.CLOSED:
+        await _finalize_order(bot, None, order_id_str, completed=True)
+    elif status in (OrderStatuses.REFUNDED, OrderStatuses.PARTIALLY_REFUNDED):
+        await _finalize_order(bot, None, order_id_str, completed=False)
+    else:
+        log.debug("Заказ %s: статус %s пока не терминальный — пропускаю", order_id_str, status)
+
+
+# ---------------------------------------------------------------- финализация
+
+async def _finalize_order(bot, chat_id, funpay_order_id: str, *, completed: bool) -> None:
+    """Отметить заказ в hub как completed/cancelled, почистить кэш и waitlist."""
+    cached = orders_cache.get(funpay_order_id)
+    hub_order_id = cached.get("order_id") if cached else None
+    if not hub_order_id:
+        log.error("Финализация %s: нет hub_order_id в orders_cache", funpay_order_id)
+        return
+
+    new_status = "completed" if completed else "cancelled"
+    res = await backend_client.update_order_status(hub_order_id, new_status)
+    if res is None:
+        log.error("Финализация %s: hub не принял статус '%s'", funpay_order_id, new_status)
+    else:
+        log.info("Финализация %s: статус '%s' принят hub'ом (order_id=%s)", funpay_order_id, new_status, hub_order_id)
+
+    orders_cache.remove(funpay_order_id)
+    log.info("Финализация %s: orders_cache очищен", funpay_order_id)
+
+    if chat_id is not None:
+        _send(bot, chat_id, "✅ Спасибо за покупку!" if completed else "❌ Возврат оформлен.")
+
+
+# ---------------------------------------------------------------- диалог
+
+async def _handle_dialog_step(bot, chat_id: int, text: str, state: dict) -> None:
     step = state["step"]
+    log.debug("[диалог %s] шаг=%s текст=%r", chat_id, step, text[:60])
 
     if step == "waiting_nickname":
         nick = text.strip()
+        log.info("[диалог %s] покупатель указал ник: %s", chat_id, nick)
+
         user_id = await validate_username(nick)
         if user_id is None:
-            await acc.send_message(chat_id, f"❌ Ник '{nick}' не найден в Roblox. Попробуй ещё раз:")
+            log.warning("[диалог %s] ник '%s' не найден в Roblox", chat_id, nick)
+            _send(bot, chat_id, f"❌ Ник '{nick}' не найден в Roblox. Попробуй ещё раз:")
             return
 
+        log.info("[диалог %s] ник валиден: %s → userId=%s", chat_id, nick, user_id)
         state["buyer_nickname"] = nick
         state["buyer_user_id"] = user_id
         state["step"] = "confirming"
-        await acc.send_message(
-            chat_id, f"Ник: {nick}. Верно? Ответь Да"
-        )
+        _send(bot, chat_id, f"Ник: {nick}. Верно? Ответь Да")
 
     elif step == "confirming":
         if text.lower() not in ("да", "yes", "y"):
-            await acc.send_message(chat_id, "Ок, напиши правильный ник:")
+            log.info("[диалог %s] подтверждение отклонено («%s») — просим исправить ник", chat_id, text)
+            _send(bot, chat_id, "Ок, напиши правильный ник:")
             state["step"] = "waiting_nickname"
             return
 
@@ -110,93 +219,138 @@ async def _handle_dialog_step(chat_id: int, text: str, acc, state: dict) -> None
         items = state["items"]
         order_id_str = state["order_id"]
 
-        # Send friend request
+        # 1) Заявка в друзья
         try:
             sent = await request_friendship(user_id)
             if not sent:
-                await acc.send_message(
-                    chat_id,
-                    "⚠️ Не удалось отправить заявку. Попробуй добавить меня сам: migufim",
-                )
-        except RobloxAuthError:
-            await acc.send_message(
-                chat_id,
-                "⚠️ Техническая пауза, скоро продолжим...",
-            )
-            logger.error("Roblox auth error — cookie expired")
+                log.warning("[диалог %s] заявка не отправлена (userId=%s) — даём альтернативу", chat_id, user_id)
+                _send(bot, chat_id, f"⚠️ Не удалось отправить заявку. Попробуй добавить меня сам: {OWNER_ROBLOX_NICK}")
+        except RobloxAuthError as e:
+            log.error("[диалог %s] Roblox-ошибка (cookie): %s", chat_id, e)
+            _send(bot, chat_id, "⚠️ Техническая пауза, скоро продолжим...")
             _dialog_states.pop(chat_id, None)
             return
 
+        # 2) Создание заказа в hub
         settings = load_settings()
         bot_id = settings.get("bot_id", "bot_main")
 
-        # Create order in backend
         order = await backend_client.create_order(
             funpay_order_id=order_id_str,
             buyer_nickname=nick,
             buyer_user_id=user_id,
             items=items,
         )
-        if order:
-            # Create pending trade
-            await backend_client.create_pending_trade(
-                order_id=order["id"],
-                bot_id=bot_id,
-                buyer_nickname=nick,
-                buyer_user_id=user_id,
-                items=items,
-            )
-            orders_cache.set(order_id_str, {
-                "order_id": order["id"],
-                "buyer_nickname": nick,
-                "items": items,
-            })
+        if not order:
+            log.error("[диалог %s] hub не создал заказ (funpay=%s) — возвращаем диалог назад", chat_id, order_id_str)
+            _send(bot, chat_id, "⚠️ Не удалось зарегистрировать заказ. Напиши ник ещё раз:")
+            state["step"] = "waiting_nickname"
+            return
 
+        hub_order_id = order["id"]
+        log.info("[диалог %s] заказ создан: funpay=%s → hub=%s", chat_id, order_id_str, hub_order_id)
+
+        # 3) Внесение в waitlist движка
+        trade = await backend_client.create_pending_trade(
+            order_id=hub_order_id,
+            bot_id=bot_id,
+            buyer_nickname=nick,
+            buyer_user_id=user_id,
+            items=items,
+        )
+        if not trade:
+            log.error("[диалог %s] pending_trade НЕ создан — движок может не выдать заказ %s!", chat_id, hub_order_id)
+        else:
+            log.info("[диалог %s] заказ %s в waitlist (trade_id=%s)", chat_id, hub_order_id, trade.get("id"))
+
+        orders_cache.set(order_id_str, {"order_id": hub_order_id, "buyer_nickname": nick, "items": items})
+
+        # 4) Финальные сообщения покупателю
+        _send(bot, chat_id, "✅ Добавил тебя в друзья. Заходи в игру!")
         server_link = settings.get("static_server_link", "")
-        await acc.send_message(chat_id, "✅ Добавил тебя в друзья. Заходи в игру!")
         if server_link:
-            await acc.send_message(chat_id, f"Сервер: {server_link}")
-        await acc.send_message(chat_id, "Кинь мне трейд через TAB → Trade.")
+            _send(bot, chat_id, f"Сервер: {server_link}")
+        _send(bot, chat_id, "Кинь мне трейд через TAB → Trade.")
 
         _dialog_states.pop(chat_id, None)
-        logger.info(f"Dialog completed: {nick} ({user_id}), order {order_id_str}")
+        log.info("Диалог завершён: %s (%s), заказ %s", nick, user_id, order_id_str)
+
+    elif step == "cancel_confirm":
+        if text.lower() in ("да", "yes", "y"):
+            log.info("[диалог %s] отмена подтверждена — отменяем заказ %s", chat_id, state.get("order_id"))
+            await _finalize_order(bot, chat_id, state.get("order_id"), completed=False)
+            _dialog_states.pop(chat_id, None)
+        else:
+            log.info("[диалог %s] покупатель отменил отмену", chat_id)
+            _send(bot, chat_id, "Ок, продолжаем! Напиши ник в Roblox:")
+            state["step"] = "waiting_nickname"
 
 
-async def _cmd_change_nick(chat_id: int, new_nick: str, acc) -> None:
-    """Handle !смена command."""
+# ---------------------------------------------------------------- команды чата
+
+async def _handle_command(bot, chat_id: int, text: str) -> None:
+    parts = text.split(maxsplit=1)
+    cmd = parts[0].lower()
+    arg = parts[1] if len(parts) > 1 else ""
+    log.info("[команда] чат=%s cmd=%s arg=%r", chat_id, cmd, arg[:40])
+
+    if cmd == "!смена":
+        await _cmd_change_nick(bot, chat_id, arg)
+    elif cmd == "!фото":
+        await _cmd_screenshot(bot, chat_id)
+    elif cmd == "!помощь":
+        await _cmd_help(bot, chat_id)
+    elif cmd == "!отмена":
+        await _cmd_cancel(bot, chat_id)
+    elif cmd == "!статус":
+        await _cmd_status(bot, chat_id)
+    else:
+        log.warning("[команда] неизвестная команда %s в чате %s", cmd, chat_id)
+        _send(bot, chat_id, "Команды: !смена <ник>, !фото, !статус, !отмена, !помощь")
+
+
+async def _cmd_change_nick(bot, chat_id: int, new_nick: str) -> None:
     if not new_nick:
-        await acc.send_message(chat_id, "Использование: !смена НовыйНик")
+        _send(bot, chat_id, "Использование: !смена НовыйНик")
         return
 
     user_id = await validate_username(new_nick)
     if user_id is None:
-        await acc.send_message(chat_id, f"❌ Ник '{new_nick}' не найден в Roblox")
+        _send(bot, chat_id, f"❌ Ник '{new_nick}' не найден в Roblox")
         return
 
-    await acc.send_message(chat_id, f"✅ Ник изменён на {new_nick}. Верно? Ответь Да")
-    # TODO: update order in backend and waitlist
-    logger.info(f"!смена: new nick {new_nick} ({user_id}) in chat {chat_id}")
+    _send(bot, chat_id, f"✅ Ник изменён на {new_nick}. Верно? Ответь Да")
+    log.info("!смена: новый ник %s (%s) в чате %s", new_nick, user_id, chat_id)
+    log.warning("!смена: TODO — обновить order/pending_trade в hub и waitlist движка")
 
 
-async def _cmd_screenshot(chat_id: int, acc) -> None:
-    """Handle !фото command — request screenshot from Engine."""
-    # TODO: send WS command to Engine, wait for proof
-    await acc.send_message(chat_id, "📸 Запрос скриншота отправлен...")
+async def _cmd_screenshot(bot, chat_id: int) -> None:
+    _send(bot, chat_id, "📸 Запрос скриншота отправлен...")
+    log.info("!фото: запрошен скриншот движка из чата %s", chat_id)
+    log.warning("!фото: TODO — WS-команда SCREENSHOT → движок → proof")
 
 
-async def _cmd_help(chat_id: int, acc) -> None:
-    """Handle !помощь command — alert admin."""
-    await acc.send_message(chat_id, "🆘 Продавец вызван. Ожидай.")
-    logger.info(f"!помощь requested in chat {chat_id}")
+async def _cmd_help(bot, chat_id: int) -> None:
+    _send(bot, chat_id, "🆘 Продавец вызван. Ожидай.")
+    log.warning("!помощь: покупатель в чате %s просит помощи — вмешаться вручную!", chat_id)
 
 
-async def _cmd_cancel(chat_id: int, acc) -> None:
-    """Handle !отмена command."""
-    await acc.send_message(chat_id, "Подтверди: Да/Нет")
-    # TODO: implement cancel confirmation flow
+async def _cmd_cancel(bot, chat_id: int) -> None:
+    state = _dialog_states.get(chat_id)
+    if not state:
+        _send(bot, chat_id, "Сейчас нет активного заказа для отмены.")
+        log.info("!отмена: отмена запрошена, но диалога нет (чать %s)", chat_id)
+        return
+
+    state["step"] = "cancel_confirm"
+    _send(bot, chat_id, "Подтверди отмену: Да")
+    log.info("!отмена: диалог %s переведён в подтверждение отмены", chat_id)
 
 
-async def _cmd_status(chat_id: int, acc) -> None:
-    """Handle !статус command."""
-    await acc.send_message(chat_id, "📊 Проверяю статус заказа...")
-    # TODO: get order status from backend and reply
+async def _cmd_status(bot, chat_id: int) -> None:
+    state = _dialog_states.get(chat_id)
+    if state:
+        _send(bot, chat_id, f"📊 Заказ {state.get('order_id')}: ожидает оформления.")
+    else:
+        _send(bot, chat_id, "📊 Активных заказов в этом чате нет.")
+    log.info("!статус: запрос статуса в чате %s", chat_id)

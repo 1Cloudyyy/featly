@@ -260,8 +260,8 @@ def find_lot_by_title(lots, query: str):
 
 | # | Шаг | Эффект |
 |---|---|---|
-| 0 | **Миграция плагина на интерфейс 1.17**: `FUNPAY_EVENT_HANDLERS`/`BOT_EVENT_HANDLERS`/`TELEGRAM_BOT_ROUTERS`, хендлеры `(bot, event)`, `bot.send_message` | без этого панель и диалоги не работают в 1.17 |
-| 0a | **Перестройка структуры**: `backend/` → `hub/`, `admin/` → `legacy/web-admin/`, docs → `docs/legacy`, `.env.example` | чистый корень, по которым чище вести v3 |
+| 0a | **Перестройка структуры**: `backend/` → `hub/`, `admin/` → `legacy/web-admin/`, docs → `docs/legacy`, `.env.example` | ✅ **выполнено 2026-08-16** |
+| 0 | **Миграция плагина на интерфейс 1.17**: `FUNPAY_EVENT_HANDLERS`/`BOT_EVENT_HANDLERS`/`TELEGRAM_BOT_ROUTERS`, хендлеры `(bot, event)`, `bot.send_message` | ✅ **выполнено 2026-08-16** (см. changelog [9.0.0]) |
 | 1 | Telegram-панель: `/admin`, экраны инвентаря и настроек (каркас из playerok) | базис для всего |
 | 2 | Инвентарь: CRUD через панель + `DELETE /inventory` на бэкенде | ручное ведение стока |
 | 3 | Автозаполнение «Наличия»: авто-поиск лота + `get_lot_fields`/`save_lot` | главная фича раздела 4 |

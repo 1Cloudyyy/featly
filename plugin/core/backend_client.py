@@ -1,15 +1,26 @@
-"""Backend HTTP client — REST calls to Featly Backend."""
+"""Hub client — REST-вызовы к Featly Hub (центру управления).
+
+Каждый вызов логируется: метод, путь, статус, длительность; ошибки — с текстом,
+чтобы сразу было понятно, где именно проблема (недоступен hub, 4xx/5xx, сеть).
+"""
 
 from __future__ import annotations
 
-import aiohttp
-from loguru import logger
+import json
+import logging
+import time
+from typing import Any
 
+import aiohttp
+
+from ..meta import NAME
 from ..settings import load_settings
+
+log = logging.getLogger(f"{NAME}.hub")
 
 
 class BackendClient:
-    """Async HTTP client for Featly Backend REST API."""
+    """Async HTTP client for Featly Hub REST API."""
 
     def __init__(self) -> None:
         self._session: aiohttp.ClientSession | None = None
@@ -17,16 +28,50 @@ class BackendClient:
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession()
+            log.debug("Создана новая aiohttp-сессия")
         return self._session
 
     async def close(self) -> None:
         if self._session and not self._session.closed:
             await self._session.close()
+            log.info("HTTP-сессия к hub закрыта")
+        self._session = None
 
     def _url(self, path: str) -> str:
         settings = load_settings()
         base = settings.get("backend_url", "http://localhost:8000")
         return f"{base.rstrip('/')}{path}"
+
+    async def _request(
+        self, method: str, path: str, *, expected: tuple[int, ...] = (200, 201), **kwargs
+    ) -> tuple[int | None, Any | None, str | None]:
+        """Выполнить запрос. Возвращает (status, json|None, error_text|None)."""
+        session = await self._get_session()
+        url = self._url(path)
+        started = time.perf_counter()
+        try:
+            async with session.request(method, url, **kwargs) as resp:
+                body = await resp.text()
+                ms = (time.perf_counter() - started) * 1000
+                if resp.status in expected:
+                    data = json.loads(body) if body else None
+                    log.debug("%s %s → %s (%.1f ms)", method, path, resp.status, ms)
+                    return resp.status, data, None
+                log.warning(
+                    "%s %s → %s (%.1f ms): %s", method, path, resp.status, ms, body[:300]
+                )
+                return resp.status, None, body[:300]
+        except Exception as e:
+            ms = (time.perf_counter() - started) * 1000
+            log.error("%s %s → исключение (%.1f ms): %r", method, path, ms, e)
+            return None, None, repr(e)
+
+    # --- Health ---
+
+    async def health(self) -> bool:
+        status, _, err = await self._request("GET", "/health")
+        log.info("health → %s", "OK" if status == 200 else f"fail ({err})")
+        return status == 200
 
     # --- Orders ---
 
@@ -37,54 +82,48 @@ class BackendClient:
         buyer_user_id: int,
         items: list[str],
     ) -> dict | None:
-        session = await self._get_session()
         payload = {
             "funpay_order_id": funpay_order_id,
             "buyer_nickname": buyer_nickname,
             "buyer_user_id": buyer_user_id,
             "items": items,
         }
-        try:
-            async with session.post(self._url("/orders"), json=payload) as resp:
-                if resp.status in (200, 201):
-                    return await resp.json()
-                logger.error(f"create_order failed: {resp.status} {await resp.text()}")
-                return None
-        except Exception as e:
-            logger.error(f"create_order error: {e}")
-            return None
+        status, data, err = await self._request("POST", "/orders", json=payload)
+        if status in (200, 201):
+            log.info("create_order: funpay=%s → hub_order_id=%s", funpay_order_id, data and data.get("id"))
+            return data
+        log.error("create_order: funpay=%s не создан (status=%s, err=%s)", funpay_order_id, status, err)
+        return None
 
     async def update_order_status(
         self, order_id: int, status: str, proof_url: str | None = None
     ) -> dict | None:
-        session = await self._get_session()
         payload = {"status": status}
         if proof_url:
             payload["proof_url"] = proof_url
-        try:
-            async with session.patch(
-                self._url(f"/orders/{order_id}/status"), json=payload
-            ) as resp:
-                if resp.status == 200:
-                    return await resp.json()
-                logger.error(f"update_order_status failed: {resp.status}")
-                return None
-        except Exception as e:
-            logger.error(f"update_order_status error: {e}")
-            return None
+        s, data, err = await self._request("PATCH", f"/orders/{order_id}/status", json=payload)
+        if s == 200:
+            log.info("update_order_status: order=%s → %s", order_id, status)
+            return data
+        log.error("update_order_status: order=%s → %s не принят (status=%s, err=%s)", order_id, status, s, err)
+        return None
 
     async def get_order(self, order_id: int) -> dict | None:
-        session = await self._get_session()
-        try:
-            async with session.get(self._url(f"/orders/{order_id}")) as resp:
-                if resp.status == 200:
-                    return await resp.json()
-                return None
-        except Exception as e:
-            logger.error(f"get_order error: {e}")
-            return None
+        s, data, err = await self._request("GET", f"/orders/{order_id}")
+        if s == 200:
+            return data
+        log.warning("get_order: order=%s → %s (err=%s)", order_id, s, err)
+        return None
 
     # --- Pending Trades ---
+
+    async def get_pending_trades(self, bot_id: str) -> list[dict]:
+        s, data, err = await self._request("GET", f"/pending_trades?bot_id={bot_id}")
+        if s == 200:
+            log.debug("get_pending_trades: %s записей для bot=%s", len(data or []), bot_id)
+            return data or []
+        log.error("get_pending_trades: bot=%s → %s (err=%s)", bot_id, s, err)
+        return []
 
     async def create_pending_trade(
         self,
@@ -94,7 +133,6 @@ class BackendClient:
         buyer_user_id: int,
         items: list[str],
     ) -> dict | None:
-        session = await self._get_session()
         payload = {
             "order_id": order_id,
             "bot_id": bot_id,
@@ -102,62 +140,66 @@ class BackendClient:
             "buyer_user_id": buyer_user_id,
             "items": items,
         }
-        try:
-            async with session.post(self._url("/pending_trades"), json=payload) as resp:
-                if resp.status in (200, 201):
-                    return await resp.json()
-                logger.error(f"create_pending_trade failed: {resp.status}")
-                return None
-        except Exception as e:
-            logger.error(f"create_pending_trade error: {e}")
-            return None
+        s, data, err = await self._request("POST", "/pending_trades", json=payload)
+        if s in (200, 201):
+            log.info("create_pending_trade: order=%s внесён в waitlist (trade_id=%s)", order_id, data and data.get("id"))
+            return data
+        log.error("create_pending_trade: order=%s → не создан (status=%s, err=%s)", order_id, s, err)
+        return None
 
     async def delete_pending_trade(self, trade_id: int) -> bool:
-        session = await self._get_session()
-        try:
-            async with session.delete(self._url(f"/pending_trades/{trade_id}")) as resp:
-                return resp.status == 204
-        except Exception as e:
-            logger.error(f"delete_pending_trade error: {e}")
-            return False
+        s, _, err = await self._request("DELETE", f"/pending_trades/{trade_id}", expected=(204,))
+        if s == 204:
+            log.info("delete_pending_trade: trade=%s удалён", trade_id)
+            return True
+        log.error("delete_pending_trade: trade=%s → %s (err=%s)", trade_id, s, err)
+        return False
 
     # --- Inventory ---
 
     async def get_inventory(self) -> list[dict]:
-        session = await self._get_session()
-        try:
-            async with session.get(self._url("/inventory")) as resp:
-                if resp.status == 200:
-                    return await resp.json()
-                return []
-        except Exception as e:
-            logger.error(f"get_inventory error: {e}")
-            return []
+        s, data, err = await self._request("GET", "/inventory")
+        if s == 200:
+            log.debug("get_inventory: %s предметов", len(data or []))
+            return data or []
+        log.error("get_inventory → %s (err=%s)", s, err)
+        return []
 
     async def get_item(self, item_key: str) -> dict | None:
-        session = await self._get_session()
-        try:
-            async with session.get(self._url(f"/inventory/{item_key}")) as resp:
-                if resp.status == 200:
-                    return await resp.json()
-                return None
-        except Exception as e:
-            logger.error(f"get_item error: {e}")
-            return None
+        s, data, err = await self._request("GET", f"/inventory/{item_key}")
+        if s == 200:
+            return data
+        log.warning("get_item: %s → %s (err=%s)", item_key, s, err)
+        return None
 
-    # --- Bot ---
+    async def set_item_threshold(self, item_key: str, threshold: int) -> bool:
+        s, _, err = await self._request(
+            "PATCH", f"/inventory/{item_key}", json={"low_stock_threshold": threshold}
+        )
+        if s == 200:
+            log.info("set_item_threshold: %s = %s", item_key, threshold)
+            return True
+        log.error("set_item_threshold: %s → %s (err=%s)", item_key, s, err)
+        return False
+
+    # --- Bots ---
+
+    async def get_bot(self, bot_id: str) -> dict | None:
+        s, data, err = await self._request("GET", f"/bots/{bot_id}")
+        if s == 200:
+            return data
+        log.warning("get_bot: %s → %s (err=%s)", bot_id, s, err)
+        return None
 
     async def update_cookie(self, bot_id: str, cookie: str) -> bool:
-        session = await self._get_session()
-        payload = {"roblox_cookie": cookie}
-        try:
-            async with session.patch(
-                self._url(f"/bots/{bot_id}/cookie"), json=payload
-            ) as resp:
-                return resp.status == 200
-        except Exception as e:
-            logger.error(f"update_cookie error: {e}")
-            return False
+        s, _, err = await self._request(
+            "PATCH", f"/bots/{bot_id}/cookie", json={"roblox_cookie": cookie}
+        )
+        if s == 200:
+            log.info("update_cookie: bot=%s cookie обновлён", bot_id)
+            return True
+        log.error("update_cookie: bot=%s → %s (err=%s)", bot_id, s, err)
+        return False
 
 
 # Singleton

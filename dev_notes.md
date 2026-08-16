@@ -69,15 +69,17 @@ featly/
 - Шаблоны хранятся в `engine/templates/`
 
 ### funpay-universal — интеграция (проверено по коду release 1.17)
-- **Плагин сейчас написан под старый интерфейс и НЕ работает с 1.17** (шаг 0 миграции v3):
+- ✅ **Шаг 0 — миграция плагина на интерфейс 1.17 выполнена 2026-08-16**:
   - было: `EVENT_HANDLERS`, `TELEGRAM_ROUTERS`, хендлеры `(deal, acc)`, `acc.send_message(...)`
-  - стало: `FUNPAY_EVENT_HANDLERS` (ключи — enum `EventTypes`), `BOT_EVENT_HANDLERS`
-    (`ON_MODULE_ENABLED`/`ON_MODULE_DISABLED`), `TELEGRAM_BOT_ROUTERS`, хендлеры `(bot: FunPayBot, event)`,
-    отправка через `bot.send_message(chat_id, text, ...)`
-- Доступ к аккаунту: `from fpbot.funpaybot import get_funpay_bot` → `get_funpay_bot().account`
+  - стало: `BOT_EVENT_HANDLERS` (`ON_MODULE_ENABLED`/`ON_MODULE_DISABLED`/`ON_TELEGRAM_BOT_INIT`),
+    `FUNPAY_EVENT_HANDLERS` (ключи — enum `EventTypes`), `TELEGRAM_BOT_ROUTERS`,
+    хендлеры `(bot: FunPayBot, event)`, отправка через `bot.send_message(chat_id, text)` (sync)
 - **События в коде 1.17:** регистрируются `NEW_MESSAGE`, `NEW_ORDER`, `ORDER_STATUS_CHANGED`.
   README заявляет `NEW_DEAL`/`ITEM_PAID`/`DEAL_CONFIRMED`/`DEAL_ROLLED_BACK` — этих членов
-  НЕТ в бандле `EventTypes`; сверяться с реальным пакетом при миграции.
+  НЕТ в бандле `EventTypes`; вместо них: `NEW_ORDER` = оплата товара, подтверждение/возврат
+  ловим через системные сообщения чата (`MessageTypes.ORDER_CONFIRMED`/`REFUND`) и `ORDER_STATUS_CHANGED`
+- Доступ к аккаунту: `from fpbot.funpaybot import get_funpay_bot` → `get_funpay_bot().account`;
+  чат покупателя ищется через `account.get_chat_by_name(buyer_username, True)`
 - Авто-поиск лота: в `FunPayBot` уже есть `get_lot_by_title(title, subcategory_id=None)`.
   Изменение «Наличия»: `account.get_lot_fields(lot_id)` → `fields.amount = n` → `account.save_lot(fields)`;
   при `count == 0` → `fields.active = False`.
