@@ -34,7 +34,12 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        # Сначала мягко завершаем ватчер, только потом закрываем движок БД
         monitor_task.cancel()
+        try:
+            await monitor_task
+        except (asyncio.CancelledError, Exception):
+            pass
         await engine.dispose()
         logger.info("Featly Backend shutting down")
 
