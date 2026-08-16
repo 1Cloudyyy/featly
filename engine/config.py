@@ -31,6 +31,8 @@ class EngineConfig(BaseModel):
     ws_secret: str = "change-me-in-production"
     bot_id: str = "bot_main"
     ws_heartbeat_interval: int = 30
+    # Как часто движок сам перезапрашивает waitlist (poll вместо push)
+    waitlist_sync_interval: int = 15
 
     # Screen capture
     scan_interval: float = 2.0  # seconds between screen scans

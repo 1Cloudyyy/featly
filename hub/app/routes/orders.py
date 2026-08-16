@@ -25,7 +25,7 @@ from app.services.order_service import (
     list_active_orders,
     update_order_status,
 )
-from app.ws.engine import queue_pending_trade, send_to_engine
+from app.ws.engine import notify_remove_waitlist, send_to_engine
 
 router = APIRouter(prefix="/orders", tags=["orders"], dependencies=[Depends(verify_api_key)])
 
@@ -101,7 +101,7 @@ async def force_trade(
         trade.bot_id, {"type": "FORCE_TRADE", "order_id": order_id}
     )
     logger.info(f"Force trade order {order_id}: delivered={delivered}")
-    return {"ok": True, "delivered": delivered, "queued": not delivered}
+    return {"ok": delivered, "delivered": delivered}
 
 
 @router.post("/{order_id}/cancel", response_model=OrderResponse)
@@ -120,12 +120,12 @@ async def cancel_order(
     await session.refresh(order)
     logger.warning(f"Order {order_id} отменён через панель")
 
-    # Убираем из waitlist и уведомляем движок
+    # Убираем из waitlist и уведомляем движок (быстрый сигнал; poll — основной канал)
     result = await session.execute(
         select(PendingTrade).where(PendingTrade.order_id == order_id)
     )
     for trade in result.scalars().all():
-        await queue_pending_trade(trade, "remove")
+        await notify_remove_waitlist(trade.bot_id, trade.buyer_nickname)
         await session.delete(trade)
     await session.commit()
     logger.info(f"Order {order_id}: pending trades удалены, движок уведомлён")
@@ -167,7 +167,6 @@ async def create_new_pending_trade(
         buyer_user_id=data.buyer_user_id,
         items=data.items,
     )
-    await queue_pending_trade(trade, "add")
     return PendingTradeResponse.model_validate(trade)
 
 
@@ -185,5 +184,5 @@ async def delete_existing_pending_trade(
     deleted = await delete_pending_trade(session, trade_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Pending trade not found")
-    # Уведомить движок, что заказ убран из waitlist
-    await queue_pending_trade(trade, "remove")
+    # Быстрый сигнал движку: убрать покупателя из локального waitlist
+    await notify_remove_waitlist(trade.bot_id, trade.buyer_nickname)

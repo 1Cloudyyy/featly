@@ -566,7 +566,7 @@ async def cb_order_force(cb: CallbackQuery) -> None:
     elif res.get("delivered"):
         await cb.answer(f"⚡ Заказ #{order_id}: команда отправлена движку", show_alert=True)
     else:
-        await cb.answer(f"⚡ Заказ #{order_id}: движок офлайн, команда в очереди", show_alert=True)
+        await cb.answer(f"⚡ Заказ #{order_id}: движок офлайн — повтори, когда подключится", show_alert=True)
     await cb_orders(cb)
 
 

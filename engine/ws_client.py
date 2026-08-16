@@ -57,11 +57,14 @@ class WSClient:
 
                     # Start heartbeat
                     heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+                    # Start waitlist polling (само-синхронизация вместо push-очередей)
+                    sync_task = asyncio.create_task(self._waitlist_sync_loop())
 
                     try:
                         await self._message_loop(ws)
                     finally:
                         heartbeat_task.cancel()
+                        sync_task.cancel()
 
             except websockets.ConnectionClosed as e:
                 logger.warning(f"Connection closed: {e}")
@@ -92,16 +95,6 @@ class WSClient:
 
         elif msg_type == "heartbeat_ack":
             pass  # OK
-
-        elif msg_type == "WAIT_FOR_TRADE":
-            trade = {
-                "order_id": data.get("order_id"),
-                "buyer_nickname": data.get("buyer_nickname"),
-                "buyer_user_id": data.get("buyer_user_id"),
-                "items": data.get("items", []),
-            }
-            waitlist_manager.add(trade)
-            logger.info(f"New pending trade queued: {trade.get('buyer_nickname')}")
 
         elif msg_type == "REMOVE_WAITLIST":
             buyer = data.get("buyer", "")
@@ -143,6 +136,17 @@ class WSClient:
         while self._running:
             await asyncio.sleep(self.config.ws_heartbeat_interval)
             await self.send({"type": "heartbeat", "bot_id": self.config.bot_id})
+
+    async def _waitlist_sync_loop(self) -> None:
+        """Периодически перезапрашивать waitlist (poll-схема, самовосстановление)."""
+        first = True
+        while self._running:
+            wait = 2.0 if first else self.config.waitlist_sync_interval
+            first = False
+            await asyncio.sleep(wait)
+            if self._running:
+                logger.debug("Waitlist poll...")
+                await self.request_waitlist()
 
     async def send(self, data: dict) -> None:
         """Send JSON message to backend."""

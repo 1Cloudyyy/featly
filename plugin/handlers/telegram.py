@@ -106,7 +106,7 @@ async def cmd_force_trade(message: Message) -> None:
     elif res.get("delivered"):
         await message.answer(f"⚡ Заказ #{order_id}: команда отправлена движку (пересканирование)")
     else:
-        await message.answer(f"⚡ Заказ #{order_id}: движок офлайн, команда в очереди")
+        await message.answer(f"⚡ Заказ #{order_id}: движок офлайн — повтори, когда подключится")
 
 
 @router.message(Command("set_threshold"))

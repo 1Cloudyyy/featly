@@ -20,9 +20,6 @@ router = APIRouter()
 # Connected engines: bot_id -> WebSocket
 connections: dict[str, WebSocket] = {}
 
-# Queued messages for offline engines: bot_id -> asyncio.Queue
-message_queue: dict[str, asyncio.Queue] = {}
-
 
 async def _update_bot_status(bot_id: str, connected: bool) -> None:
     async with async_session() as session:
@@ -58,19 +55,10 @@ async def _get_waitlist(bot_id: str) -> list[dict]:
 
 
 async def send_to_engine(bot_id: str, message: dict) -> bool:
-    """Send a message to an engine, queueing it if the engine is offline.
-
-    Queued messages are delivered on the next connection. Returns True if the
-    message was sent directly, False if it was queued.
-    """
+    """Отправить сообщение движку напрямую (без очередей — движок сам пуллит waitlist)."""
     ws = connections.get(bot_id)
     if ws is None:
-        q = message_queue.setdefault(bot_id, asyncio.Queue(maxsize=100))
-        try:
-            q.put_nowait(message)
-            logger.info(f"Engine {bot_id} offline — queued message: {message.get('type')}")
-        except asyncio.QueueFull:
-            logger.warning(f"Message queue full for {bot_id}, dropping: {message.get('type')}")
+        logger.warning(f"Engine {bot_id} offline — сообщение не доставлено: {message.get('type')}")
         return False
     try:
         await ws.send_json(message)
@@ -80,44 +68,13 @@ async def send_to_engine(bot_id: str, message: dict) -> bool:
         return False
 
 
-async def _flush_queued_messages(bot_id: str, ws: WebSocket) -> None:
-    """Deliver any messages that were queued while the engine was offline."""
-    q = message_queue.pop(bot_id, None)
-    if q is None or q.empty():
-        return
-    delivered = 0
-    while not q.empty():
-        try:
-            msg = q.get_nowait()
-        except asyncio.QueueEmpty:
-            break
-        try:
-            await ws.send_json(msg)
-            delivered += 1
-        except Exception:
-            break
-    if delivered:
-        logger.info(f"Flushed {delivered} queued messages to {bot_id}")
+async def notify_remove_waitlist(bot_id: str, buyer_nickname: str) -> None:
+    """Быстрый сигнал движку: убрать покупателя из локального waitlist (отмена заказа).
 
-
-async def queue_pending_trade(trade: PendingTrade, action: str) -> None:
-    """Notify an engine about a pending trade change (WAIT_FOR_TRADE/REMOVE_WAITLIST).
-    `action` is 'add' or 'remove'. Queues the message if the engine is offline.
+    Основная синхронизация — poll движка (request_waitlist); этот сигнал нужен,
+    чтобы не выдать товар за отменённый заказ в окне до следующего пулла.
     """
-    if action == "add":
-        message = {
-            "type": "WAIT_FOR_TRADE",
-            "order_id": trade.order_id,
-            "buyer_nickname": trade.buyer_nickname,
-            "buyer_user_id": trade.buyer_user_id,
-            "items": json.loads(trade.items),
-        }
-    else:
-        message = {
-            "type": "REMOVE_WAITLIST",
-            "buyer": trade.buyer_nickname,
-        }
-    await send_to_engine(trade.bot_id, message)
+    await send_to_engine(bot_id, {"type": "REMOVE_WAITLIST", "buyer": buyer_nickname})
 
 
 @router.websocket("/ws/engine")
@@ -154,9 +111,6 @@ async def engine_websocket(websocket: WebSocket) -> None:
                 break
 
     keepalive_task = asyncio.create_task(_keepalive())
-
-    # Deliver messages queued while the engine was offline
-    await _flush_queued_messages(bot_id, websocket)
 
     # Message loop
     try:
