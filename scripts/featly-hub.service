@@ -12,6 +12,8 @@ Environment=PATH=/opt/featly/hub/venv/bin
 # Environment=FEATLY_DATABASE_URL=postgresql+asyncpg://featly:featly@localhost:5432/featly
 Environment=FEATLY_DATABASE_URL=sqlite+aiosqlite:///opt/featly/hub/featly.db
 Environment=FEATLY_WS_SECRET=change-me-in-production
+# Создание служебных каталогов до запуска (иначе ProtectSystem=strict падает)
+ExecStartPre=-/usr/bin/install -d -o featly -g featly -m 0755 /opt/featly/hub/logs /opt/featly/hub/uploads
 ExecStart=/opt/featly/hub/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=5
