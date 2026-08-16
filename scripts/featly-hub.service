@@ -10,10 +10,10 @@ WorkingDirectory=/opt/featly/hub
 Environment=PATH=/opt/featly/hub/venv/bin
 # SQLite по умолчанию (лёгкий деплой). Для PostgreSQL:
 # Environment=FEATLY_DATABASE_URL=postgresql+asyncpg://featly:featly@localhost:5432/featly
-Environment=FEATLY_DATABASE_URL=sqlite+aiosqlite:///opt/featly/hub/featly.db
+Environment=FEATLY_DATABASE_URL=sqlite+aiosqlite:///opt/featly/hub/data/featly.db
 Environment=FEATLY_WS_SECRET=change-me-in-production
 # Создание служебных каталогов до запуска (иначе ProtectSystem=strict падает)
-ExecStartPre=-/usr/bin/install -d -o featly -g featly -m 0755 /opt/featly/hub/logs /opt/featly/hub/uploads
+ExecStartPre=-/usr/bin/install -d -o featly -g featly -m 0755 /opt/featly/hub/data /opt/featly/hub/logs /opt/featly/hub/uploads
 ExecStart=/opt/featly/hub/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=5
@@ -27,7 +27,7 @@ SyslogIdentifier=featly-hub
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/featly/hub
+ReadWritePaths=/opt/featly/hub/data /opt/featly/hub/logs /opt/featly/hub/uploads
 
 [Install]
 WantedBy=multi-user.target
