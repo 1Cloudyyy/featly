@@ -4,16 +4,20 @@ Real MM2 trade flow:
 1. Detect trade request notification
 2. Wait for trade window (instant)
 3. Search item in Search box
-4. Click item(s) to add to YOUR OFFER
+4. Click item(s) to add to YOUR OFFER (+1 шт за клик — «Вариант Б»)
 5. Wait for countdown 6-7 sec ("Please wait (X) before accepting")
 6. Click ACCEPT
 7. Click "ARE YOU SURE?"
 8. Other side accepts → DONE
+
+Лимиты трейда MM2: до 4 УНИКАЛЬНЫХ предметов в одном окне;
+количество одного типа — безлимит (набирается повторными кликами).
 """
 
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,6 +53,16 @@ class TradeState:
 
 
 PROOFS_DIR = Path(__file__).parent / "proofs"
+
+
+def _sanitize_search_term(name) -> str:
+    """Поисковый терм для ввода в игре: только ASCII (латиница/цифры/пробелы).
+
+    Эмодзи и кириллица из названий лотов не печатаются pydirectinput'ом.
+    """
+    term = re.sub(r"[^\x20-\x7E]", " ", str(name))
+    term = re.sub(r"\s+", " ", term).strip()
+    return term[:64] or str(name)[:64]
 PROOFS_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -202,18 +216,35 @@ class TradeFlow:
             await self._on_fail(None, "No items specified")
             return
 
-        # Process each item
+        # Process each item (Вариант Б: каждый повтор = отдельный клик = 1 шт)
+        # Лимит трейда MM2: максимум 4 УНИКАЛЬНЫХ предмета в одном окне
+        unique: set[str] = set()
+        skipped: list[str] = []
+
         for item_name in items:
+            key = str(item_name).strip().lower()
+            if key not in unique:
+                if len(unique) >= 4:
+                    skipped.append(str(item_name))
+                    continue
+                unique.add(key)
             await self._search_single_item(item_name)
             await asyncio.sleep(0.5)
 
-        logger.info(f"All items added: {items}")
+        if skipped:
+            logger.warning(
+                f"Лимит 4 уникальных предмета в окне трейда — НЕ добавлены: {skipped} "
+                f"(для полной выдачи нужен повторный трейд)"
+            )
+
+        logger.info(f"All items added: {list(unique)} ×N (повторы кликами)")
         await self._wait_for_countdown()
 
     async def _search_single_item(self, item_name: str) -> None:
-        """Search for a single item and add it."""
+        """Search for a single item and add it (1 клик = 1 шт — Вариант Б)."""
         regions = self.config.regions
-        logger.info(f"Searching for: {item_name}")
+        term = _sanitize_search_term(item_name)  # только латиница/цифры — иначе тайпинг ломается
+        logger.info(f"Searching for: {term}")
 
         # Click search box
         sx, sy, sw, sh = regions.search_box
@@ -227,7 +258,7 @@ class TradeFlow:
         await asyncio.sleep(0.2)
 
         # Type full item name
-        await async_type(item_name.lower())
+        await async_type(term.lower())
         await asyncio.sleep(1.0)
 
         # Click first result in list (below search box)
@@ -238,7 +269,7 @@ class TradeFlow:
         await async_click(sx + sw // 2, sy + sh + 40)
         await asyncio.sleep(0.3)
 
-        logger.debug(f"Added {item_name} to offer")
+        logger.debug(f"Added {item_name} to offer (+1 шт)")
 
     # ─── Step 5: Wait for countdown ───────────────────────────────
 

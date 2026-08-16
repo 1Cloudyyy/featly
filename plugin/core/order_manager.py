@@ -67,13 +67,62 @@ def _chat(bot, nickname: str):
 
 
 def _parse_items(order) -> list[str]:
-    """Названия предметов из заказа (title или short_description через запятую)."""
-    title = getattr(order, "title", None) or getattr(order, "short_description", None)
-    if not title:
-        log.warning("Заказ %s без title/short_description — items=[order_id]", getattr(order, "id", "?"))
-        return [str(getattr(order, "id", "?"))]
-    items = [t.strip() for t in str(title).split(",") if t.strip()]
-    return items or [str(getattr(order, "id", "?"))]
+    """Названия предметов из заказа (правильный источник — поля заказа).
+
+    Порядок:
+      1) order.fields — поле с названием («Название», «Название предмета», «Товар»);
+      2) fallback — первый сегмент title заказа до запятой (без эмодзи/кириллицы).
+
+    Количество (Вариант Б): N единиц = N повторов названия в списке — движок
+    добавляет каждый повтор отдельным кликом (так работает трейд MM2).
+    """
+    name = _extract_item_name(order)
+    if not name:
+        order_id = str(getattr(order, "id", "?"))
+        log.warning("Не удалось извлечь название предмета (order %s)", order_id)
+        return [order_id]
+    try:
+        amount = max(1, int(getattr(order, "amount", 1) or 1))
+    except (TypeError, ValueError):
+        amount = 1
+    return [name] * amount
+
+
+def _extract_item_name(order) -> str | None:
+    """Достать название предмета из полей заказа (LotField.name ≈ «Назван…»)."""
+    fields = getattr(order, "fields", None) or {}
+    try:
+        for _, lot_field in fields.items():
+            label = str(getattr(lot_field, "name", "") or "").lower()
+            if not label:
+                continue
+            if "назван" in label or "предмет" in label or "товар" in label:
+                value = getattr(lot_field, "value", None)
+                if isinstance(value, str) and value.strip():
+                    cleaned = _clean_item_name(value)
+                    if cleaned:
+                        log.info("Название из поля заказа «%s»: %s", label, cleaned)
+                        return cleaned
+    except Exception as e:
+        log.warning("Не удалось прочитать поля заказа: %s", e)
+
+    # Fallback: первый сегмент title до запятой
+    title = str(getattr(order, "title", None) or "")
+    first = title.split(",", 1)[0] if title else ""
+    cleaned = _clean_item_name(first)
+    if cleaned:
+        log.info("Название из title (fallback): %s", cleaned)
+        return cleaned
+    return None
+
+
+def _clean_item_name(raw: str) -> str:
+    """Очистка для поиска в игре: эмодзи/кириллица/спецсимволы → латиница+цифры."""
+    import re
+
+    cleaned = re.sub(r"[^\x20-\x7E]", " ", str(raw))  # только ASCII печатные
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned[:64] if cleaned else ""
 
 
 def _send(bot, chat_id: int, text: str) -> None:
