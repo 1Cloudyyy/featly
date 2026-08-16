@@ -48,6 +48,37 @@ VDS (центр управления)                     Mini-PC / Windows (м�
 
 ---
 
+## ⚠️ Упущенное: совместимость плагина с последней версией funpay-universal (1.17)
+
+Проверка актуального кода funpay-universal (release **1.17**, 02.08.2026) показала, что
+**текущий FEATLY-плагин написан под старый интерфейс и не работает с последней версией бота**:
+
+| Сейчас в FEATLY | Требуется в 1.17 |
+|---|---|
+| `EVENT_HANDLERS` | `FUNPAY_EVENT_HANDLERS` (ключи — enum `EventTypes`) |
+| `TELEGRAM_ROUTERS` | `TELEGRAM_BOT_ROUTERS` |
+| `(deal, acc)`, `acc.send_message(...)` | `(bot: FunPayBot, event)`, `bot.send_message(chat_id, ...)` |
+| `on_load` / `on_unload` | `BOT_EVENT_HANDLERS`: `ON_MODULE_ENABLED` / `ON_MODULE_DISABLED` |
+
+Проверено по коду и официальному шаблону модуля:
+- Доступ к аккаунту: `from fpbot.funpaybot import get_funpay_bot` — глобальный синглтон;
+  внутри хендлера — аргумент `bot.account`.
+- Отправка сообщений: `FunPayBot.send_message(chat_id, text, ...)` (3 попытки).
+- События в коде 1.17: регистрируются `NEW_MESSAGE`, `NEW_ORDER`, `ORDER_STATUS_CHANGED`.
+  В README заявлены более новые имена (`NEW_DEAL`, `ITEM_PAID`, `DEAL_CONFIRMED`,
+  `DEAL_ROLLED_BACK`), но в бандле `EventTypes` их **нет** — при миграции сверяться
+  с реальным `EventTypes` установленного пакета.
+- **Бонус для авто-поиска:** в `FunPayBot` уже есть `get_lot_by_title(title)` — поиск своего
+  лота по названию. Изменение количества: `bot.account.get_lot_fields(lot_id)` →
+  `fields.amount = n` → `account.save_lot(fields)` (методы подтверждены в бандле FunPayAPI).
+- Telegram-роутеры модуля сливаются с роутером бота (aiogram 3): префиксы callback'ов
+  делать уникальными, чтобы не конфликтовать с основным ботом.
+
+**Следствие:** миграция плагина на актуальный интерфейс — обязательный **шаг 0** v3.
+Без него ни панель, ни диалоги не заработают на версии 1.17.
+
+---
+
 ## 3. Telegram-панель админки (`/admin`)
 
 Каркас переносится из плагина playerok (`minecraft_dropship/admin_handlers.py`):
@@ -122,20 +153,22 @@ aiogram Router + `StatesGroup` (FSM) + inline-кнопки с текущими �
   - готового поиска по названию в API нет — реализуем свой fuzzy-матчинг.
 
 ### 4.3 Авто-поиск лота по названию
+В 1.17 использовать готовый `FunPayBot.get_lot_by_title(title)` (есть в библиотеке):
+```python
+bot = get_funpay_bot()
+lot = bot.get_lot_by_title("icepiercer")       # или subcategory/subcategory_id для точности
+if lot:
+    fields = bot.account.get_lot_fields(lot.id)
+    fields.amount = new_count
+    if new_count == 0:
+        fields.active = False
+    bot.account.save_lot(fields)
+```
+Запасной вариант (если get_lot_by_title не найдёт из-за регистра/формата):
 ```python
 def find_lot_by_title(lots, query: str):
     q = query.strip().lower()
-    # 1) точное совпадение
-    for lot in lots:
-        if (lot.title or "").strip().lower() == q:
-            return lot
-    # 2) вхождение подстроки
-    for lot in lots:
-        if q in (lot.title or "").lower():
-            return lot
-    # 3) fuzzy (SequenceMatcher), порог ~0.6
-    best = max((_ratio(lot.title, q), lot) for lot in lots)
-    return best[1] if best[0] >= 0.6 else None
+    # точное → вхождение подстроки → fuzzy (SequenceMatcher >= 0.6)
 ```
 - При успехе `lot_id` **кэшируется** в конфиге плагина
   (`items: {item_key: {lot_id, name}}`) — дальнейшие обновления идут по id без поиска.
@@ -159,8 +192,9 @@ def find_lot_by_title(lots, query: str):
 
 ## 5. Что остаётся открытым (вопросы на следующее обсуждение)
 
-1. Версия funpay-universal у продавца: интерфейс хуков может отличаться
-   (`EVENT_HANDLERS` vs `FUNPAY_EVENT_HANDLERS` + `ON_FUNPAY_BOT_INIT`).
+1. У продавца funpay-universal **1.17**: интерфейс модуля — `FUNPAY_EVENT_HANDLERS`/`BOT_EVENT_HANDLERS`/
+   `TELEGRAM_BOT_ROUTERS`. Расхождение README (деals-имена) и кода (order-события) решено
+   проверкой установленного пакета при миграции (шаг 0).
 2. Переезд backend на SQLite — сразу в v3 или позже?
 3. Судьба `pending_trades`: оставить как есть (опционально) или перейти на статусы в `orders`.
 4. Нужен ли reconcile-таск или достаточно синка по действию.
@@ -169,6 +203,7 @@ def find_lot_by_title(lots, query: str):
 
 | # | Шаг | Эффект |
 |---|---|---|
+| 0 | **Миграция плагина на интерфейс 1.17**: `FUNPAY_EVENT_HANDLERS`/`BOT_EVENT_HANDLERS`/`TELEGRAM_BOT_ROUTERS`, хендлеры `(bot, event)`, `bot.send_message` | без этого панель и диалоги не работают в 1.17 |
 | 1 | Telegram-панель: `/admin`, экраны инвентаря и настроек (каркас из playerok) | базис для всего |
 | 2 | Инвентарь: CRUD через панель + `DELETE /inventory` на бэкенде | ручное ведение стока |
 | 3 | Автозаполнение «Наличия»: авто-поиск лота + `get_lot_fields`/`save_lot` | главная фича раздела 4 |
