@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 from loguru import logger
 
@@ -47,12 +48,18 @@ class ReconnectHandler:
             logger.warning("Disconnect detected — clicking Reconnect")
             await async_click(center[0], center[1])
 
-            # Wait for HUD to appear (async — не блокирует event loop)
-            found_hud, _ = await wait_for_template_async(
-                capture_screen,
-                "mm2_hud.png",
-                timeout=30.0,
-            )
+            # Шаблон mm2_hud.png ОПЦИОНАЛЕН: если файла нет, детект невозможен —
+            # считаем реконнект успешным и продолжаем (полная проверка — v3.2)
+            if not (Path(__file__).parent / "templates" / "mm2_hud.png").exists():
+                logger.warning("mm2_hud.png отсутствует — пропускаю проверку HUD")
+                found_hud = True
+            else:
+                # Wait for HUD to appear (async — не блокирует event loop)
+                found_hud, _ = await wait_for_template_async(
+                    capture_screen,
+                    "mm2_hud.png",
+                    timeout=30.0,
+                )
 
             if found_hud:
                 logger.info("Reconnected successfully")
