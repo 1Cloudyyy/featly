@@ -9,9 +9,10 @@ Group=featly
 WorkingDirectory=/opt/featly/hub
 Environment=PATH=/opt/featly/hub/venv/bin
 # SQLite в системном каталоге /var/lib/featly-hub (создаётся systemd ДО namespace).
+# ВАЖНО: 4 слэша = абсолютный путь (3 слэша SQLAlchemy трактует как относительный!).
 # Для PostgreSQL:
 # Environment=FEATLY_DATABASE_URL=postgresql+asyncpg://featly:featly@localhost:5432/featly
-Environment=FEATLY_DATABASE_URL=sqlite+aiosqlite:///var/lib/featly-hub/featly.db
+Environment=FEATLY_DATABASE_URL=sqlite+aiosqlite:////var/lib/featly-hub/featly.db
 Environment=FEATLY_WS_SECRET=change-me-in-production
 # Каталоги, которые systemd создаёт сам (с правами featly) до настройки sandbox
 StateDirectory=featly-hub
