@@ -181,6 +181,8 @@ tail -f engine/logs/engine_*.log
 
 ## Dev & Docs
 
+- [`docs/DEPLOY_v3.1.md`](docs/DEPLOY_v3.1.md) — полное руководство по запуску (VDS + Windows)
+- [`docs/ROADMAP_v3.1.md`](docs/ROADMAP_v3.1.md) — план релизного цикла
 - [`docs/FEATLY_v3_CONCEPT.md`](docs/FEATLY_v3_CONCEPT.md) — концепт v3 (архитектура, панель, роадмап)
 - [`changelog.md`](changelog.md) — журнал изменений
 - [`dev_notes.md`](dev_notes.md) — архитектурные решения и технические заметки
