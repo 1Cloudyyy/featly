@@ -7,7 +7,7 @@ import asyncio
 from loguru import logger
 
 from engine.config import EngineConfig
-from engine.cv_matcher import detect_template, wait_for_template
+from engine.cv_matcher import detect_template, wait_for_template_async
 from engine.input_controller import async_click
 from engine.screen_capture import capture_screen
 from engine.ws_client import WSClient
@@ -47,12 +47,11 @@ class ReconnectHandler:
             logger.warning("Disconnect detected — clicking Reconnect")
             await async_click(center[0], center[1])
 
-            # Wait for HUD to appear
-            found_hud, _ = wait_for_template(
+            # Wait for HUD to appear (async — не блокирует event loop)
+            found_hud, _ = await wait_for_template_async(
                 capture_screen,
                 "mm2_hud.png",
                 timeout=30.0,
-                region=self.config.regions.mm2_hud,
             )
 
             if found_hud:

@@ -6,6 +6,19 @@
 
 ## [9.1.0] — 2026-08-16 (v3 «полировка»)
 
+### Закрытие аудита — серия 1 (коммит `…`)
+- **C2 — cookie шифруется** (Fernet, `app/crypto.py`): ключ `FEATLY_COOKIE_KEY` (env) или
+  автогенерация с сохранением в корневой `.env` один раз; `PATCH /bots/{id}/cookie` хранит
+  зашифрованное значение; проверен roundtrip
+- **C6′ — `reconnect.py`**: синхронный `wait_for_template` (блокировал event loop до 30 с) →
+  `wait_for_template_async`
+- **C4′ — retry hub-запросов**: `_request` повторяет неудачные вызовы (3 попытки, backoff)
+  только для идемпотентных GET — POST-создания не дублируются
+- **C5 — диалоги персистентны**: `DialogCache` (`data/dialogs_cache.json`); точки сохранения
+  на каждом шаге диалога; восстановление при `ON_MODULE_ENABLED`
+
+---
+
 ### Эшо B — полная настройка hub из Telegram (коммит `…`)
 - **Hub**: таблица `app_settings` (key→value) + `GET /settings` / `PATCH /settings`
   (auth — api-key; неизвестные ключи отклоняются), `GET /settings/secrets`

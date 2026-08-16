@@ -72,3 +72,40 @@ class OrdersCache:
 
 # Singleton
 orders_cache = OrdersCache()
+
+# Файл активных диалогов (персистентность: рестарт плагина не теряет диалоги)
+DIALOGS_FILE = DATA_DIR / "dialogs_cache.json"
+
+
+class DialogCache:
+    """Persistent storage активных диалогов (chat_id → state)."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._dialogs: dict[str, dict] = {}
+        self._load()
+
+    def _load(self) -> None:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        if DIALOGS_FILE.exists():
+            try:
+                self._dialogs = json.loads(DIALOGS_FILE.read_text(encoding="utf-8"))
+                log.info("Восстановлено диалогов из файла: %s", len(self._dialogs))
+            except Exception as e:
+                log.error("Не удалось прочитать кэш диалогов: %s", e)
+
+    def load_all(self) -> dict[str, dict]:
+        with self._lock:
+            return dict(self._dialogs)
+
+    def save_all(self, dialogs: dict[int, dict]) -> None:
+        with self._lock:
+            self._dialogs = {str(k): v for k, v in dialogs.items()}
+            DIALOGS_FILE.write_text(
+                json.dumps(self._dialogs, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+        log.debug("Диалоги сохранены: %s шт", len(self._dialogs))
+
+
+# Singleton
+dialog_cache = DialogCache()

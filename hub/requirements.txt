@@ -11,6 +11,9 @@ loguru>=0.7.3
 # TG-алерты hub (мониторинг движков)
 aiohttp>=3.11.0
 
+# Шифрование roblox_cookie (Fernet)
+cryptography>=43.0.0
+
 # БД: SQLite по умолчанию; asyncpg — только если используется PostgreSQL
 aiosqlite>=0.20.0
 asyncpg>=0.30.0

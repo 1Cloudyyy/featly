@@ -12,7 +12,7 @@ import logging
 
 from FunPayAPI.common.enums import MessageTypes, OrderStatuses
 
-from ..data import orders_cache
+from ..data import dialog_cache, orders_cache
 from ..meta import NAME
 from ..settings import load_settings
 from .backend_client import backend_client
@@ -35,13 +35,24 @@ _nick_change: dict = {}
 async def init() -> None:
     _dialog_states.clear()
     _nick_change.clear()
-    log.info("order_manager инициализирован (диалоги сброшены)")
+    # Восстановление активных диалогов после рестарта плагина
+    restored = dialog_cache.load_all()
+    for chat_id_str, state in restored.items():
+        _dialog_states[int(chat_id_str)] = state
+    if restored:
+        log.warning("Восстановлено %s активных диалогов из файла", len(restored))
+    log.info("order_manager инициализирован")
 
 
 async def shutdown() -> None:
     _dialog_states.clear()
     _nick_change.clear()
+    dialog_cache.save_all(_dialog_states)
     log.info("order_manager остановлен")
+
+
+async def _persist_dialogs() -> None:
+    dialog_cache.save_all(_dialog_states)
 
 
 # ---------------------------------------------------------------- helpers
@@ -151,9 +162,11 @@ async def handle_new_order(bot, order) -> None:
     if player_nick:
         log.info("Диалог запущен (подтверждение ника): chat=%s order=%s ник=%s", chat_id, order_id_str, player_nick)
         _send(bot, chat_id, f"Твой ник для выдачи: {player_nick}. Верно? Ответь Да")
+        await _persist_dialogs()
     else:
         log.info("Диалог запущен (запрос ника): chat=%s order=%s", chat_id, order_id_str)
         _send(bot, chat_id, "Привет! Напиши свой ник в Roblox:")
+        await _persist_dialogs()
 
 
 async def handle_system_message(bot, msg) -> None:
@@ -316,6 +329,7 @@ async def _finish_dialog(bot, chat_id: int, state: dict) -> None:
     _send(bot, chat_id, "Кинь мне трейд через TAB → Trade.")
 
     _dialog_states.pop(chat_id, None)
+    await _persist_dialogs()
     log.info("Диалог завершён: %s (%s), заказ %s", nick, user_id, order_id_str)
 
 
@@ -338,12 +352,14 @@ async def _handle_dialog_step(bot, chat_id: int, text: str, state: dict) -> None
         state["buyer_user_id"] = user_id
         state["step"] = "confirming"
         _send(bot, chat_id, f"Ник: {nick}. Верно? Ответь Да")
+        await _persist_dialogs()
 
     elif step in ("confirming", "confirm_nick"):
         if text.lower() not in ("да", "yes", "y"):
             log.info("[диалог %s] подтверждение отклонено («%s») — просим исправить ник", chat_id, text)
             _send(bot, chat_id, "Ок, напиши правильный ник:")
             state["step"] = "waiting_nickname"
+            await _persist_dialogs()
             return
 
         nick = state.get("buyer_nickname")
@@ -369,10 +385,12 @@ async def _handle_dialog_step(bot, chat_id: int, text: str, state: dict) -> None
             log.info("[диалог %s] отмена подтверждена — отменяем заказ %s", chat_id, state.get("order_id"))
             await _finalize_order(bot, chat_id, state.get("order_id"), completed=False)
             _dialog_states.pop(chat_id, None)
+            await _persist_dialogs()
         else:
             log.info("[диалог %s] покупатель отменил отмену", chat_id)
             _send(bot, chat_id, "Ок, продолжаем! Напиши ник в Roblox:")
             state["step"] = "waiting_nickname"
+            await _persist_dialogs()
 
 
 # ---------------------------------------------------------------- команды чата
@@ -481,6 +499,7 @@ async def _cmd_cancel(bot, chat_id: int) -> None:
 
     state["step"] = "cancel_confirm"
     _send(bot, chat_id, "Подтверди отмену: Да")
+    await _persist_dialogs()
     log.info("!отмена: диалог %s переведён в подтверждение отмены", chat_id)
 
 

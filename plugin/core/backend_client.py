@@ -2,10 +2,12 @@
 
 Каждый вызов логируется: метод, путь, статус, длительность; ошибки — с текстом,
 чтобы сразу было понятно, где именно проблема (недоступен hub, 4xx/5xx, сеть).
+Retry — только для идемпотентных GET (не задваивает POST).
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -45,7 +47,11 @@ class BackendClient:
     async def _request(
         self, method: str, path: str, *, expected: tuple[int, ...] = (200, 201), **kwargs
     ) -> tuple[int | None, Any | None, str | None]:
-        """Выполнить запрос. Возвращает (status, json|None, error_text|None)."""
+        """Выполнить запрос. Возвращает (status, json|None, error_text|None).
+
+        Retry (до 3 попыток) — только для ИДЕМПОТЕНТНЫХ методов (GET), чтобы не
+        задваивать POST-создания заказов/предметов.
+        """
         session = await self._get_session()
         url = self._url(path)
 
@@ -59,23 +65,33 @@ class BackendClient:
         if headers:
             kwargs["headers"] = headers
 
+        attempts = 3 if method in ("GET",) else 1
         started = time.perf_counter()
-        try:
-            async with session.request(method, url, **kwargs) as resp:
-                body = await resp.text()
+        for attempt in range(1, attempts + 1):
+            try:
+                async with session.request(method, url, **kwargs) as resp:
+                    body = await resp.text()
+                    ms = (time.perf_counter() - started) * 1000
+                    if resp.status in expected:
+                        data = json.loads(body) if body else None
+                        log.debug("%s %s → %s (%.1f ms)", method, path, resp.status, ms)
+                        return resp.status, data, None
+                    log.warning(
+                        "%s %s → HTTP %s (%.1f ms): %s", method, path, resp.status, ms, body[:300]
+                    )
+                    return resp.status, None, body[:300]
+            except Exception as e:
                 ms = (time.perf_counter() - started) * 1000
-                if resp.status in expected:
-                    data = json.loads(body) if body else None
-                    log.debug("%s %s → %s (%.1f ms)", method, path, resp.status, ms)
-                    return resp.status, data, None
-                log.warning(
-                    "%s %s → %s (%.1f ms): %s", method, path, resp.status, ms, body[:300]
-                )
-                return resp.status, None, body[:300]
-        except Exception as e:
-            ms = (time.perf_counter() - started) * 1000
-            log.error("%s %s → исключение (%.1f ms): %r", method, path, ms, e)
-            return None, None, repr(e)
+                if attempt < attempts:
+                    log.warning(
+                        "%s %s: попытка %s/%s упала (%.1f ms): %r — повтор через %ss",
+                        method, path, attempt, attempts, ms, e, 1.5 * attempt,
+                    )
+                    await asyncio.sleep(1.5 * attempt)
+                else:
+                    log.error("%s %s → исключение (%.1f ms): %r", method, path, ms, e)
+                    return None, None, repr(e)
+        return None, None, "unreachable"
 
     # --- Health ---
 

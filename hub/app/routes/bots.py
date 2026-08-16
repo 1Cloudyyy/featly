@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import verify_api_key
+from app.crypto import encrypt
 from app.db import get_session
 from app.models.bot import Bot
 from app.schemas.schemas import BotCookieUpdate, BotResponse
@@ -42,7 +43,8 @@ async def update_bot_cookie(
     bot = result.scalar_one_or_none()
     if bot is None:
         raise HTTPException(status_code=404, detail="Bot not found")
-    bot.roblox_cookie = data.roblox_cookie
+    # Кука хранится зашифрованной (Fernet; ключ FEATLY_COOKIE_KEY — см. app/crypto)
+    bot.roblox_cookie = encrypt(data.roblox_cookie)
     await session.commit()
     await session.refresh(bot)
     return BotResponse.model_validate(bot)
