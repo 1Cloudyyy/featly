@@ -80,6 +80,6 @@ class Settings(BaseSettings):
 
 
 # Персистентные секреты ДО загрузки Settings (иначе default_factory сгенерит новые)
-_ensure_env_secrets()
+ensure_env_secrets()
 
 settings = Settings()
