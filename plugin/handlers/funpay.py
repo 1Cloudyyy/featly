@@ -54,6 +54,15 @@ async def on_new_message(bot, event) -> None:
             await order_manager.handle_system_message(bot, msg)
             return
 
+        # Системные тексты FunPay (автор «FunPay») с обычным типом — НЕ обрабатываем:
+        # сюда попадают блоки «Вы можете перейти в Discord…», уведомления об отзыве и т.п.
+        if msg.author == "FunPay":
+            log.debug(
+                "NEW_MESSAGE chat=%s — системный текст FunPay (text=%r), пропускаю",
+                chat_id, (msg.text or "")[:60],
+            )
+            return
+
         log.info(
             "NEW_MESSAGE: chat=%s author=%s text=%r",
             chat_id, msg.author, (msg.text or "")[:80],
