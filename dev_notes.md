@@ -99,6 +99,15 @@ featly/
 - Панель: «🛍 Синхронизировать лот», «📎 Привязать лот вручную» (FSM `lot_id`)
 - `data/settings.json` создаётся автоматически при `ON_MODULE_ENABLED` (`ensure_settings`)
 
+### Заказы: force/отмена (шаг 4, выполнена 2026-08-16)
+- `POST /orders/{id}/force` → WS `FORCE_TRADE` → движок: `find_by_order_id` (+ sync, если нет)
+  → `trade_flow.kick_scan()` (немедленный перескан)
+- `POST /orders/{id}/cancel` → статус CANCELLED + удаление pending-строк + `REMOVE_WAITLIST`
+- Панель: кнопки ⚡/❌/🗑 на каждый заказ; отмена — FSM подтверждение (`PanelStates.confirm_order`)
+- `/force_trade <id>` — рабочая команда (hub-вызов)
+- ВАЖНО: реально «выдать» движок может только когда покупатель открыл трейд —
+  FORCE_TRADE пересканирует и ставит заказ в приоритет, а не открывает трейд за покупателя
+
 ---
 
 ## Журнал обязательного сопровождения

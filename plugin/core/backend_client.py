@@ -115,6 +115,24 @@ class BackendClient:
         log.warning("get_order: order=%s → %s (err=%s)", order_id, s, err)
         return None
 
+    async def force_trade(self, order_id: int) -> dict | None:
+        """Принудительная выдача: движок пересканирует заказ."""
+        s, data, err = await self._request("POST", f"/orders/{order_id}/force")
+        if s == 200:
+            log.info("force_trade: order=%s → %s", order_id, data)
+            return data
+        log.error("force_trade: order=%s → %s (err=%s)", order_id, s, err)
+        return None
+
+    async def cancel_order(self, order_id: int) -> dict | None:
+        """Отмена заказа: CANCELLED + удаление из waitlist + уведомление движка."""
+        s, data, err = await self._request("POST", f"/orders/{order_id}/cancel")
+        if s == 200:
+            log.warning("cancel_order: order=%s отменён", order_id)
+            return data
+        log.error("cancel_order: order=%s → %s (err=%s)", order_id, s, err)
+        return None
+
     # --- Pending Trades ---
 
     async def get_pending_trades(self, bot_id: str) -> list[dict]:

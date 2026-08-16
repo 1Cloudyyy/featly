@@ -60,6 +60,7 @@ class TradeFlow:
         self.state = TradeState.IDLE
         self._running = False
         self._current_trade: dict | None = None
+        self._kick_event = asyncio.Event()
         self._on_trade_completed: Callable | None = None
         self._on_trade_failed: Callable | None = None
 
@@ -72,17 +73,30 @@ class TradeFlow:
     async def run_scan_loop(self) -> None:
         """Main loop — scan screen for trade requests."""
         self._running = True
+        self._kick_event = asyncio.Event()
         logger.info("Trade scan loop started")
 
         while self._running:
             try:
                 if self.state == TradeState.IDLE:
                     await self._scan_for_trade_request()
-                await asyncio.sleep(self.config.scan_interval)
+                try:
+                    # Ожидаем интервал скана ИЛИ принудительный kick (FORCE_TRADE)
+                    await asyncio.wait_for(
+                        self._kick_event.wait(), timeout=self.config.scan_interval
+                    )
+                except asyncio.TimeoutError:
+                    pass
+                self._kick_event.clear()
             except Exception as e:
                 logger.exception(f"Trade loop error: {e}")
                 self.state = TradeState.IDLE
                 await asyncio.sleep(5)
+
+    def kick_scan(self) -> None:
+        """Запросить немедленное пересканирование (используется при FORCE_TRADE)."""
+        logger.info("Kick scan requested")
+        self._kick_event.set()
 
     # ─── Step 1: Detect trade request ─────────────────────────────
 

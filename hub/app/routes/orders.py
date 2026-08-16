@@ -1,11 +1,14 @@
 """Order routes — REST API for orders."""
 
 from fastapi import APIRouter, Depends, HTTPException
+from loguru import logger
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import verify_api_key
 from app.db import get_session
-from app.models.order import OrderStatus
+from app.models.order import Order, OrderStatus
+from app.models.pending_trade import PendingTrade
 from app.schemas.schemas import (
     OrderCreate,
     OrderResponse,
@@ -22,7 +25,7 @@ from app.services.order_service import (
     list_active_orders,
     update_order_status,
 )
-from app.ws.engine import queue_pending_trade
+from app.ws.engine import queue_pending_trade, send_to_engine
 
 router = APIRouter(prefix="/orders", tags=["orders"], dependencies=[Depends(verify_api_key)])
 
@@ -82,6 +85,54 @@ async def update_order(
     return OrderResponse.model_validate(order)
 
 
+@router.post("/{order_id}/force")
+async def force_trade(
+    order_id: int, session: AsyncSession = Depends(get_session)
+) -> dict:
+    """Принудительная выдача: уведомить движок, чтобы пересканировал и выдал заказ."""
+    result = await session.execute(
+        select(PendingTrade).where(PendingTrade.order_id == order_id)
+    )
+    trade = result.scalar_one_or_none()
+    if trade is None:
+        raise HTTPException(status_code=404, detail="Заказ не в waitlist — выдача невозможна")
+
+    delivered = await send_to_engine(
+        trade.bot_id, {"type": "FORCE_TRADE", "order_id": order_id}
+    )
+    logger.info(f"Force trade order {order_id}: delivered={delivered}")
+    return {"ok": True, "delivered": delivered, "queued": not delivered}
+
+
+@router.post("/{order_id}/cancel", response_model=OrderResponse)
+async def cancel_order(
+    order_id: int, session: AsyncSession = Depends(get_session)
+) -> OrderResponse:
+    """Отменить заказ: статус CANCELLED, удаление из waitlist и уведомление движка."""
+    order = await get_order(session, order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.status in (OrderStatus.COMPLETED, OrderStatus.CANCELLED, OrderStatus.REFUNDED):
+        raise HTTPException(status_code=409, detail=f"Заказ уже в статусе {order.status.value}")
+
+    order.status = OrderStatus.CANCELLED
+    await session.commit()
+    await session.refresh(order)
+    logger.warning(f"Order {order_id} отменён через панель")
+
+    # Убираем из waitlist и уведомляем движок
+    result = await session.execute(
+        select(PendingTrade).where(PendingTrade.order_id == order_id)
+    )
+    for trade in result.scalars().all():
+        await queue_pending_trade(trade, "remove")
+        await session.delete(trade)
+    await session.commit()
+    logger.info(f"Order {order_id}: pending trades удалены, движок уведомлён")
+
+    return OrderResponse.model_validate(order)
+
+
 # --- Pending Trades ---
 
 pending_router = APIRouter(prefix="/pending_trades", tags=["pending_trades"], dependencies=[Depends(verify_api_key)])
@@ -124,6 +175,15 @@ async def create_new_pending_trade(
 async def delete_existing_pending_trade(
     trade_id: int, session: AsyncSession = Depends(get_session)
 ) -> None:
+    result = await session.execute(
+        select(PendingTrade).where(PendingTrade.id == trade_id)
+    )
+    trade = result.scalar_one_or_none()
+    if trade is None:
+        raise HTTPException(status_code=404, detail="Pending trade not found")
+
     deleted = await delete_pending_trade(session, trade_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Pending trade not found")
+    # Уведомить движок, что заказ убран из waitlist
+    await queue_pending_trade(trade, "remove")

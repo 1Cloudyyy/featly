@@ -66,6 +66,13 @@ class WaitlistManager:
                     return trade
         return None
 
+    def find_by_order_id(self, order_id: int) -> dict | None:
+        """Найти заказ в локальном waitlist по id (для FORCE_TRADE)."""
+        for trade in self._waitlist:
+            if trade.get("order_id") == order_id:
+                return trade
+        return None
+
     @staticmethod
     def _levenshtein(a: str, b: str) -> int:
         """Simple Levenshtein distance."""

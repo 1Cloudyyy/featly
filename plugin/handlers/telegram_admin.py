@@ -48,6 +48,7 @@ class PanelStates(StatesGroup):
     item_threshold = State()
     setting_value = State()
     lot_id = State()
+    confirm_order = State()
 
 
 # ---------------------------------------------------------------- helpers
@@ -171,7 +172,13 @@ async def _item_text(key: str) -> str:
 def _kb_orders(trades: list[dict]):
     rows = []
     for t in trades:
-        rows.append([(f"🗑 Убрать из waitlist: #{t['order_id']}", f"cb:trade_del:{t['id']}")])
+        rows.append(
+            [
+                (f"⚡ Выдать #{t['order_id']}", f"cb:order_force:{t['order_id']}"),
+                (f"❌ Отменить #{t['order_id']}", f"cb:order_cancel:{t['order_id']}"),
+                (f"🗑 Из waitlist #{t['order_id']}", f"cb:trade_del:{t['id']}"),
+            ]
+        )
     rows.append([("🔄 Обновить", "cb:orders"), ("⬅️ Назад", "cb:main")])
     return _kb(rows)
 
@@ -542,6 +549,65 @@ async def cb_trade_del(cb: CallbackQuery) -> None:
         log.error("Панель: не удалось убрать trade_id=%s", trade_id)
         await cb.answer("❌ Ошибка удаления", show_alert=True)
     await cb_orders(cb)
+
+
+# --- принудительная выдача заказа ---
+
+@router.callback_query(F.data.startswith("cb:order_force:"))
+async def cb_order_force(cb: CallbackQuery) -> None:
+    if not _is_admin(cb.from_user.id):
+        await cb.answer("⛔ Нет доступа", show_alert=True)
+        return
+    order_id = int(cb.data.split(":", 2)[2])
+    log.warning("Панель: принудительная выдача заказа #%s", order_id)
+    res = await backend_client.force_trade(order_id)
+    if res is None:
+        await cb.answer("❌ Не удалось — заказ не в waitlist или hub недоступен", show_alert=True)
+    elif res.get("delivered"):
+        await cb.answer(f"⚡ Заказ #{order_id}: команда отправлена движку", show_alert=True)
+    else:
+        await cb.answer(f"⚡ Заказ #{order_id}: движок офлайн, команда в очереди", show_alert=True)
+    await cb_orders(cb)
+
+
+# --- отмена заказа (с подтверждением) ---
+
+@router.callback_query(F.data.startswith("cb:order_cancel:"))
+async def cb_order_cancel(cb: CallbackQuery, state: FSMContext) -> None:
+    if not _is_admin(cb.from_user.id):
+        await cb.answer("⛔ Нет доступа", show_alert=True)
+        return
+    order_id = int(cb.data.split(":", 2)[2])
+    await state.clear()
+    await state.set_state(PanelStates.confirm_order)
+    await state.update_data(cancel_order_id=order_id)
+    log.warning("Панель: запрошена отмена заказа #%s — жду подтверждения", order_id)
+    await _screen(cb, f"⚠️ Отменить заказ #{order_id}?\n\nНапиши «да» или «нет»:", None)
+
+
+@router.message(PanelStates.confirm_order)
+async def fsm_confirm_order(message: Message, state: FSMContext) -> None:
+    if message.from_user is None:
+        return
+    if not _is_admin(message.from_user.id):
+        return
+    data = await state.get_data()
+    order_id = data.get("cancel_order_id")
+    await state.clear()
+    if order_id is None:
+        return
+
+    if message.text.strip().lower() in ("да", "yes", "y"):
+        log.warning("Панель: отмена заказа #%s подтверждена", order_id)
+        res = await backend_client.cancel_order(order_id)
+        if res is None:
+            await message.answer(f"❌ Не удалось отменить заказ #{order_id} (возможно, уже завершён)")
+        else:
+            await message.answer(f"✅ Заказ #{order_id} отменён, убран из waitlist")
+    else:
+        log.info("Панель: отмена заказа #%s отклонена", order_id)
+        await message.answer("Отмена отменена.")
+    await _screen(message, await _main_text(), _kb_main())
 
 
 # ---------------------------------------------------------------- статистика

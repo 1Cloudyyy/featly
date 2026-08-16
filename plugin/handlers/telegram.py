@@ -92,10 +92,21 @@ async def cmd_force_trade(message: Message) -> None:
         return
 
     order_id = args[1].strip()
-    log.warning("/force_trade: запрошена принудительная выдача заказа #%s", order_id)
-    await message.answer(f"⚡ Принудительная выдача заказа #{order_id}...")
-    # TODO: WS-команда движку из hub
-    log.warning("/force_trade: TODO — WS-резерв (FORCE_TRADE) не реализован")
+    log.warning("/force_trade: принудительная выдача заказа #%s", order_id)
+
+    try:
+        order_id_int = int(order_id)
+    except ValueError:
+        await message.answer("❌ order_id должен быть числом")
+        return
+
+    res = await backend_client.force_trade(order_id_int)
+    if res is None:
+        await message.answer("❌ Не удалось — заказ не в waitlist или hub недоступен")
+    elif res.get("delivered"):
+        await message.answer(f"⚡ Заказ #{order_id}: команда отправлена движку (пересканирование)")
+    else:
+        await message.answer(f"⚡ Заказ #{order_id}: движок офлайн, команда в очереди")
 
 
 @router.message(Command("set_threshold"))

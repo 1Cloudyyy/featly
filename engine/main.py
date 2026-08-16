@@ -44,6 +44,17 @@ async def main() -> None:
     trade_flow.on_trade_completed(ws_client.report_trade_completed)
     trade_flow.on_trade_failed(ws_client.report_trade_failed)
 
+    # Wire up FORCE_TRADE (принудительная выдача) → немедленный перескан
+    async def on_force_trade(trade: dict) -> None:
+        logger.info(
+            "FORCE_TRADE: приоритет заказа %s (%s) — пересканирование",
+            trade.get("order_id"),
+            trade.get("buyer_nickname"),
+        )
+        trade_flow.kick_scan()
+
+    ws_client.on_force_trade(on_force_trade)
+
     # Handle shutdown
     def shutdown_handler():
         logger.info("Shutdown signal received")

@@ -22,6 +22,7 @@ class WSClient:
         self._running = False
         self._waitlist: list[dict] = []
         self._on_waitlist_update: Callable | None = None
+        self._on_force_trade: Callable | None = None
 
     @property
     def waitlist(self) -> list[dict]:
@@ -30,6 +31,10 @@ class WSClient:
     def on_waitlist_update(self, callback) -> None:
         """Register callback for waitlist sync events."""
         self._on_waitlist_update = callback
+
+    def on_force_trade(self, callback) -> None:
+        """Register callback for FORCE_TRADE commands (trade_flow.kick_scan)."""
+        self._on_force_trade = callback
 
     async def connect(self) -> None:
         """Connect to WebSocket server with retry."""
@@ -102,6 +107,24 @@ class WSClient:
             buyer = data.get("buyer", "")
             waitlist_manager.remove_by_buyer(buyer)
             logger.info(f"Removed from waitlist: {buyer}")
+
+        elif msg_type == "FORCE_TRADE":
+            order_id = data.get("order_id")
+            trade = waitlist_manager.find_by_order_id(order_id)
+            if trade is None:
+                logger.warning(
+                    f"FORCE_TRADE: заказ {order_id} не в локальном waitlist — запрашиваю синхронизацию"
+                )
+                await self.request_waitlist()
+                trade = waitlist_manager.find_by_order_id(order_id)
+            if trade is None:
+                logger.error(f"FORCE_TRADE: заказ {order_id} не найден даже после синхронизации")
+            elif self._on_force_trade:
+                await self._on_force_trade(trade)
+            else:
+                logger.warning(
+                    f"FORCE_TRADE: заказ {order_id} в waitlist, но обработчик не подключён"
+                )
 
         elif msg_type == "SCREENSHOT":
             # Trigger screenshot
