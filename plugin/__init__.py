@@ -52,7 +52,17 @@ async def on_module_enabled(module) -> None:
 
 
 async def on_module_disabled(_) -> None:
+    import asyncio
+
     log.info("Модуль %s v%s выключается", NAME, VERSION)
+    # Дождаться in-flight задач (запросы к hub/диалоги), чтобы не потерять середину операции
+    current = asyncio.current_task()
+    tasks = [t for t in asyncio.all_tasks() if t is not current and not t.done()]
+    if tasks:
+        log.info("Ожидаю завершения %s активных задач (до 10 с)...", len(tasks))
+        done, pending = await asyncio.wait(tasks, timeout=10)
+        if pending:
+            log.warning("Задач зависли: %s — модуль выключается принудительно", len(pending))
     await backend_client.close()
     await order_manager.shutdown()
 

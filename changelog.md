@@ -6,6 +6,20 @@
 
 ## [9.1.0] — 2026-08-16 (v3 «полировка»)
 
+### Закрытие аудита — серия 2 (коммит `…`)
+- **M1 — единый state machine**: `validate_transition()` в `order_service`;
+  переходы `WAITING_TRADE/DIALOG → COMPLETED` разрешены (фактическое поведение движка);
+  cancel-роут и `trade_completed` используют общую проверку
+- **Секреты в `.env` один раз**: `ensure_env_secrets()` — `FEATLY_WS_SECRET`/`FEATLY_API_KEY`/
+  `FEATLY_COOKIE_KEY` генерируются при первом старте и пишутся в корневой `.env`
+  (рестарт больше не «отваливает» клиентов)
+- **H2 — graceful shutdown плагина**: `ON_MODULE_DISABLED` ждёт in-flight-задачи (до 10 с)
+- **M4 — валидация в панели**: отрицательные количество/пороги отклоняются;
+  `backend_url`/`backend_ws_url` проверяются по схеме (http/https/ws/wss)
+- **L2 — `plugin/CHANGELOG.md`** (журнал модуля с 2.2.0 по 3.1.0)
+
+---
+
 ### Закрытие аудита — серия 1 (коммит `…`)
 - **C2 — cookie шифруется** (Fernet, `app/crypto.py`): ключ `FEATLY_COOKIE_KEY` (env) или
   автогенерация с сохранением в корневой `.env` один раз; `PATCH /bots/{id}/cookie` хранит

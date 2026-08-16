@@ -92,6 +92,13 @@ featly/
 - Hub-эндпоинты панели: `GET /stats`, `POST /inventory`, `DELETE /inventory/{key}`
 - Callback-префикс: `cb:*`; FSM-стейты `PanelStates`
 
+### Серия аудита 2 (2026-08-16)
+- `validate_transition()` — единая проверка статусов заказа (сервисный слой)
+- Секреты hub (`WS_SECRET`/`API_KEY`/`COOKIE_KEY`): генерация один раз в корневой `.env`
+  при первом старте (config.py `ensure_env_secrets` + `env_file`); после рестарта — те же
+- Плагин: graceful shutdown (wait 10 с на in-flight), валидация панели (отрицательные, URL),
+  отдельный `plugin/CHANGELOG.md`
+
 ### Шифрование и устойчивость (серия аудита 1, 2026-08-16)
 - `roblox_cookie` в hub хранится **зашифрованным** (Fernet; `hub/app/crypto.py`);
   ключ `FEATLY_COOKIE_KEY` (env) или автогенерация в корневой `.env` (один раз)

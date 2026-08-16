@@ -25,6 +25,7 @@ from app.services.order_service import (
     get_pending_trades_by_bot,
     list_active_orders,
     update_order_status,
+    validate_transition,
 )
 from app.ws.engine import notify_remove_waitlist, send_to_engine
 
@@ -143,7 +144,7 @@ async def cancel_order(
     order = await get_order(session, order_id)
     if order is None:
         raise HTTPException(status_code=404, detail="Order not found")
-    if order.status in (OrderStatus.COMPLETED, OrderStatus.CANCELLED, OrderStatus.REFUNDED):
+    if not validate_transition(order.status, OrderStatus.CANCELLED):
         raise HTTPException(status_code=409, detail=f"Заказ уже в статусе {order.status.value}")
 
     order.status = OrderStatus.CANCELLED

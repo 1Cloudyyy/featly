@@ -14,6 +14,7 @@ from app.models.bot import Bot, BotStatus
 from app.models.order import Order, OrderStatus
 from app.models.pending_trade import PendingTrade, PendingTradeStatus
 from app.services.inventory_service import decrement_item
+from app.services.order_service import validate_transition
 
 router = APIRouter()
 
@@ -165,13 +166,8 @@ async def _handle_engine_message(bot_id: str, data: dict) -> None:
             result = await session.execute(select(Order).where(Order.id == order_id))
             order = result.scalar_one_or_none()
             if order:
-                # Only accept a valid transition (e.g. DELIVERING → COMPLETED)
-                valid = {
-                    OrderStatus.WAITING_TRADE,
-                    OrderStatus.DELIVERING,
-                    OrderStatus.DIALOG,
-                }
-                if order.status in valid:
+                # Только валидный переход (например, DELIVERING/WAITING_TRADE → COMPLETED)
+                if validate_transition(order.status, OrderStatus.COMPLETED):
                     order.status = OrderStatus.COMPLETED
                     order.completed_at = datetime.now(timezone.utc)
                     if proof_path:

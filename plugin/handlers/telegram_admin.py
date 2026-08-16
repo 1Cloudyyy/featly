@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import logging
+from urllib.parse import urlparse
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -54,6 +55,12 @@ NICKNAME_LABELS = {
     "auto": "🎮 Ник: подтверждение (из заказа)",
     "auto_trusted": "🎮 Ник: авто-доверие (без вопросов)",
     "ask": "🎮 Ник: всегда спрашивать",
+}
+
+# Примеры значений для полей настроек (подсказка при невалидном URL)
+DEFAULT_EXAMPLES = {
+    "backend_url": "http://localhost:8000",
+    "backend_ws_url": "ws://localhost:8000/ws/engine",
 }
 
 
@@ -481,6 +488,9 @@ async def fsm_item_count(message: Message, state: FSMContext) -> None:
     except ValueError:
         await message.answer("❌ Должно быть число. Попробуй ещё раз:")
         return
+    if count < 0:
+        await message.answer("❌ Количество не может быть отрицательным. Попробуй ещё раз:")
+        return
 
     data = await state.get_data()
     if data.get("edit_key"):
@@ -516,6 +526,9 @@ async def fsm_item_threshold(message: Message, state: FSMContext) -> None:
         threshold = int(message.text.strip())
     except ValueError:
         await message.answer("❌ Должно быть число. Попробуй ещё раз:")
+        return
+    if threshold < 0:
+        await message.answer("❌ Порог не может быть отрицательным. Попробуй ещё раз:")
         return
 
     data = await state.get_data()
@@ -888,6 +901,17 @@ async def fsm_setting_value(message: Message, state: FSMContext) -> None:
             value = int(value)
         except ValueError:
             await message.answer("❌ Порог должен быть числом. Попробуй снова (/admin → Настройки)")
+            return
+        if value < 0:
+            await message.answer("❌ Порог не может быть отрицательным. Попробуй снова")
+            return
+    if field in ("backend_url", "backend_ws_url"):
+        parsed = urlparse(value)
+        allowed = {"http", "https", "ws", "wss"}
+        if parsed.scheme not in allowed or not parsed.netloc:
+            await message.answer(
+                f"❌ Непохоже на URL: `{value}`. Пример: {DEFAULT_EXAMPLES.get(field, 'https://…')}"
+            )
             return
     if field == "admin_tg_id":
         value = value.replace("@", "").strip()

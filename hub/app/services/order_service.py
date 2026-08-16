@@ -14,13 +14,18 @@ from app.models.pending_trade import PendingTrade, PendingTradeStatus
 # Valid status transitions for state machine
 VALID_TRANSITIONS: dict[OrderStatus, list[OrderStatus]] = {
     OrderStatus.NEW: [OrderStatus.DIALOG, OrderStatus.CANCELLED],
-    OrderStatus.DIALOG: [OrderStatus.WAITING_TRADE, OrderStatus.CANCELLED],
-    OrderStatus.WAITING_TRADE: [OrderStatus.DELIVERING, OrderStatus.CANCELLED],
+    OrderStatus.DIALOG: [OrderStatus.WAITING_TRADE, OrderStatus.CANCELLED, OrderStatus.COMPLETED],
+    OrderStatus.WAITING_TRADE: [OrderStatus.DELIVERING, OrderStatus.CANCELLED, OrderStatus.COMPLETED],
     OrderStatus.DELIVERING: [OrderStatus.COMPLETED, OrderStatus.CANCELLED],
     OrderStatus.COMPLETED: [],
     OrderStatus.CANCELLED: [],
     OrderStatus.REFUNDED: [],
 }
+
+
+def validate_transition(current: OrderStatus, new: OrderStatus) -> bool:
+    """Единая проверка корректности перехода статусов заказа."""
+    return new in VALID_TRANSITIONS.get(current, [])
 
 
 async def create_order(
@@ -67,8 +72,8 @@ async def update_order_status(
     if order is None:
         return None
 
-    # State machine validation
-    if status not in VALID_TRANSITIONS.get(order.status, []):
+    # State machine validation (единый переход)
+    if not validate_transition(order.status, status):
         logger.warning(f"Invalid transition: {order.status} → {status} for order {order_id}")
         raise ValueError(f"Cannot transition from {order.status} to {status}")
 
