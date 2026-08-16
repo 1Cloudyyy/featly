@@ -22,22 +22,15 @@ log = logging.getLogger(f"{NAME}.hub")
 
 
 class BackendClient:
-    """Async HTTP client for Featly Hub REST API."""
+    """Async HTTP client for Featly Hub REST API.
 
-    def __init__(self) -> None:
-        self._session: aiohttp.ClientSession | None = None
-
-    async def _get_session(self) -> aiohttp.ClientSession:
-        if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession()
-            log.debug("Создана новая aiohttp-сессия")
-        return self._session
+    Сессия создаётся на КАЖДЫЙ запрос: funpay-universal может вызывать хендлеры
+    из разных event loop'ов — постоянная сессия тогда умирает с
+    «Event loop is closed». Запросов мало, поэтому overhead несущественен.
+    """
 
     async def close(self) -> None:
-        if self._session and not self._session.closed:
-            await self._session.close()
-            log.info("HTTP-сессия к hub закрыта")
-        self._session = None
+        pass  # сессии создаются по месту; закрывать нечего
 
     def _url(self, path: str) -> str:
         settings = load_settings()
@@ -52,7 +45,6 @@ class BackendClient:
         Retry (до 3 попыток) — только для ИДЕМПОТЕНТНЫХ методов (GET), чтобы не
         задваивать POST-создания заказов/предметов.
         """
-        session = await self._get_session()
         url = self._url(path)
 
         # Авторизация: X-API-Key из настроек
@@ -69,17 +61,19 @@ class BackendClient:
         started = time.perf_counter()
         for attempt in range(1, attempts + 1):
             try:
-                async with session.request(method, url, **kwargs) as resp:
-                    body = await resp.text()
-                    ms = (time.perf_counter() - started) * 1000
-                    if resp.status in expected:
-                        data = json.loads(body) if body else None
-                        log.debug("%s %s → %s (%.1f ms)", method, path, resp.status, ms)
-                        return resp.status, data, None
-                    log.warning(
-                        "%s %s → HTTP %s (%.1f ms): %s", method, path, resp.status, ms, body[:300]
-                    )
-                    return resp.status, None, body[:300]
+                # Сессия на каждый запрос — не привязываемся к конкретному event loop
+                async with aiohttp.ClientSession() as session:
+                    async with session.request(method, url, **kwargs) as resp:
+                        body = await resp.text()
+                        ms = (time.perf_counter() - started) * 1000
+                        if resp.status in expected:
+                            data = json.loads(body) if body else None
+                            log.debug("%s %s → %s (%.1f ms)", method, path, resp.status, ms)
+                            return resp.status, data, None
+                        log.warning(
+                            "%s %s → HTTP %s (%.1f ms): %s", method, path, resp.status, ms, body[:300]
+                        )
+                        return resp.status, None, body[:300]
             except Exception as e:
                 ms = (time.perf_counter() - started) * 1000
                 if attempt < attempts:

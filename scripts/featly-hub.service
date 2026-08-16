@@ -13,7 +13,9 @@ Environment=PATH=/opt/featly/hub/venv/bin
 # Для PostgreSQL:
 # Environment=FEATLY_DATABASE_URL=postgresql+asyncpg://featly:featly@localhost:5432/featly
 Environment=FEATLY_DATABASE_URL=sqlite+aiosqlite:////var/lib/featly-hub/featly.db
-Environment=FEATLY_WS_SECRET=change-me-in-production
+# Секреты (WS_SECRET/API_KEY/COOKIE_KEY) читаются из корневого /opt/featly/.env —
+# НЕ задавайте их в юните жёстко, иначе движок/плагин разъедутся с hub.
+# (При PostgreSQL раскомментируй строку с DATABASE_URL выше.)
 # Каталоги, которые systemd создаёт сам (с правами featly) до настройки sandbox
 StateDirectory=featly-hub
 LogsDirectory=featly-hub
