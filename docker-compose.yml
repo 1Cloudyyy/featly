@@ -15,10 +15,10 @@ services:
       timeout: 5s
       retries: 5
 
-  backend:
+  hub:
     build:
       context: .
-      dockerfile: backend/Dockerfile
+      dockerfile: hub/Dockerfile
     ports:
       - "8000:8000"
     environment:
@@ -30,17 +30,6 @@ services:
         condition: service_healthy
     volumes:
       - uploads:/app/uploads
-
-  admin:
-    build:
-      context: .
-      dockerfile: admin/Dockerfile
-      args:
-        VITE_API_KEY: ${FEATLY_API_KEY:-}
-    ports:
-      - "3000:3000"
-    depends_on:
-      - backend
 
 volumes:
   pgdata:

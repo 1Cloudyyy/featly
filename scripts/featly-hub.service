@@ -1,5 +1,5 @@
 [Unit]
-Description=Featly Backend API
+Description=Featly Hub API
 After=network.target postgresql.service
 Wants=postgresql.service
 
@@ -7,24 +7,24 @@ Wants=postgresql.service
 Type=simple
 User=featly
 Group=featly
-WorkingDirectory=/opt/featly/backend
-Environment=PATH=/opt/featly/backend/venv/bin
+WorkingDirectory=/opt/featly/hub
+Environment=PATH=/opt/featly/hub/venv/bin
 Environment=FEATLY_DATABASE_URL=postgresql+asyncpg://featly:featly@localhost:5432/featly
 Environment=FEATLY_WS_SECRET=change-me-in-production
-ExecStart=/opt/featly/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+ExecStart=/opt/featly/hub/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=5
 
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=featly-backend
+SyslogIdentifier=featly-hub
 
 # Security
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/featly/backend/uploads /opt/featly/backend/logs
+ReadWritePaths=/opt/featly/hub/uploads /opt/featly/hub/logs
 
 [Install]
 WantedBy=multi-user.target

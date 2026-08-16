@@ -26,4 +26,4 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install mypy
-      - run: mypy backend/ plugin/
+      - run: mypy hub/ plugin/

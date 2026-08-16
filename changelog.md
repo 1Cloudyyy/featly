@@ -6,6 +6,15 @@
 
 ## [8.0.0] — 2026-08-16
 
+### Рефакторинг структуры (шаг 0a v3, коммит `…`)
+- `backend/` → **`hub/`** (центр управления); обновлены все ссылки: CI, pyproject, docker-compose, Dockerfile, scripts
+- `admin/` → **`legacy/web-admin/`**; admin-сервис убран из docker-compose (панель → Telegram в v3)
+- Старые документы перенесены в **`docs/legacy/`**: аудиты v2.2, repo-анализ, AI-промпт
+- Скрипты деплоя: `deploy-backend.sh` → `deploy-hub.sh`, systemd-юнит `featly-hub.service`,
+  health-check/logrotate переведены на `/opt/featly/hub/` и `featly-hub`
+- Добавлен **`.env.example`** (единая точка правды по секретам)
+- `setup.sh`: убран вызов alembic (таблицы создаются через `create_all` в lifespan)
+
 ### Исправлено (аудит v2.2, коммит `3040cdd`)
 - Engine: зарегистрированы callbacks `on_trade_completed`/`on_trade_failed` → `ws_client.report_*` (замыкание цикла «выдача → уведомление бэкенда»)
 - Backend WS: починен keepalive (`ws` → `websocket`, был NameError), добавлена очередь сообщений для офлайн-движка, доставка накопленного при реконнекте

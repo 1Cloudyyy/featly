@@ -27,8 +27,8 @@ docker-compose up -d
 ### Manual Setup
 
 ```bash
-# Backend (Linux VPS)
-cd backend
+# Hub (Linux VPS)
+cd hub
 python3.12 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
@@ -54,22 +54,22 @@ bash scripts/setup.sh
 ```
 featly/
 ├── plugin/          # Featly Plugin (funpay-universal module)
-│   ├── core/        # Roblox API, Backend client, Order manager
+│   ├── core/        # Roblox API, Hub client, Order manager
 │   ├── handlers/    # FunPay and Telegram event handlers
 │   └── utils/       # Alerts utilities
-├── backend/         # Featly Backend (FastAPI)
+├── hub/             # Featly Hub (FastAPI) — центр управления
 │   ├── app/
 │   │   ├── models/  # SQLAlchemy models
 │   │   ├── routes/  # REST API endpoints
 │   │   ├── ws/      # WebSocket server
 │   │   └── services/# Business logic
-│   └── alembic/     # Database migrations
+│   └── tests/
 ├── engine/          # Windows Engine
 │   ├── profiles/    # Game-specific configs (YAML)
 │   ├── templates/   # OpenCV template images
 │   └── proofs/      # Trade proof screenshots
-├── admin/           # Web-admin (React) — планируется к выводу в legacy/ в v3
-├── docs/            # Архитектура и документация (концепт v3)
+├── legacy/web-admin # React-админка (не в compose, «на антресоль»)
+├── docs/            # Документация (концепт v3, legacy-доки)
 └── scripts/         # Setup scripts
 ```
 
@@ -108,7 +108,7 @@ featly/
 
 ## Configuration
 
-### Backend
+### Hub
 
 Environment variables (prefix `FEATLY_`):
 
@@ -130,14 +130,14 @@ Edit `engine/profiles/mm2.yaml` for screen regions and trade flow settings.
 
 ## Deployment
 
-### VPS (Backend + PostgreSQL)
+### VPS (Hub + PostgreSQL)
 
 ```bash
 # One-click deploy
-bash scripts/deploy-backend.sh
+bash scripts/deploy-hub.sh
 
 # Or manual
-cd /opt/featly/backend
+cd /opt/featly/hub
 source venv/bin/activate
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
@@ -156,7 +156,7 @@ python -m engine.main
 ### Health Check
 
 ```bash
-# Check backend
+# Check hub
 curl http://localhost:8000/health/detailed
 
 # Setup cron (every 5 min)
@@ -166,8 +166,8 @@ echo "*/5 * * * * /opt/featly/scripts/health-check.sh" | crontab -
 ### Logs
 
 ```bash
-# Backend logs
-journalctl -u featly-backend -f
+# Hub logs
+journalctl -u featly-hub -f
 
 # Engine logs
 tail -f engine/logs/engine_*.log

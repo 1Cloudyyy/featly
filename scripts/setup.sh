@@ -1,10 +1,10 @@
 #!/bin/bash
-# Featly v2.2 — Quick Setup Script
+# Featly v3 — Quick Setup Script
 # Run this on a fresh Ubuntu 24 VPS
 
 set -e
 
-echo "=== Featly v2.2 Setup ==="
+echo "=== Featly v3 Setup ==="
 
 # Update system
 echo "[1/6] Updating system..."
@@ -28,20 +28,19 @@ sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE featly TO featly;" 2>
 echo "[5/6] Installing Tesseract..."
 sudo apt install -y tesseract-ocr tesseract-ocr-eng
 
-# Setup backend
-echo "[6/6] Setting up backend..."
-cd backend
+# Setup hub
+echo "[6/6] Setting up hub..."
+cd hub
 python3.12 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# Run migrations
-alembic upgrade head 2>/dev/null || echo "Run 'alembic revision --autogenerate -m init' first"
+# Таблицы создаются автоматически при старте (Base.metadata.create_all в lifespan)
 
 echo ""
 echo "=== Setup Complete ==="
 echo ""
-echo "Start backend:  cd backend && source venv/bin/activate && uvicorn app.main:app --host 0.0.0.0 --port 8000"
-echo "Start engine:   cd engine && python -m engine.main"
+echo "Start hub:     cd hub && source venv/bin/activate && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+echo "Start engine:  cd engine && python -m engine.main"
 echo ""
 echo "Docker alternative: docker-compose up -d"

@@ -28,6 +28,12 @@ Desktop.ini
 .env
 .env.local
 
+# Kilo local config
+.kilo/
+
+# Node (legacy web-admin)
+node_modules/
+
 # Logs
 *.log
 logs/

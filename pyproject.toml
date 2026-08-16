@@ -26,7 +26,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["backend", "plugin", "engine"]
+known-first-party = ["hub", "plugin", "engine"]
 
 [tool.black]
 target-version = ["py312"]
@@ -48,5 +48,5 @@ module = [
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-testpaths = ["backend/tests", "engine/tests"]
+testpaths = ["hub/tests", "engine/tests"]
 asyncio_mode = "auto"
