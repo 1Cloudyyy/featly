@@ -92,6 +92,12 @@ featly/
 - Hub-эндпоинты панели: `GET /stats`, `POST /inventory`, `DELETE /inventory/{key}`
 - Callback-префикс: `cb:*`; FSM-стейты `PanelStates`
 
+### v3.1 «полировка» (2026-08-16)
+- `!смена`: `_nick_change` FSM-подтверждение → `PATCH /orders/{id}/nickname` (заказ + waitlist);
+  движок подхватит при следующем пулле. В orders_cache добавлен `chat_id` + `find_by_chat`
+- `PendingTrade` — `UniqueConstraint(order_id, bot_id)` (нет дублей)
+- `OrdersCache` — `threading.Lock` (хендлеры могут работать параллельно)
+
 ### Poll waitlist + Mini-ПК (шаг 6, выполнена 2026-08-16)
 - Движок пуллит waitlist каждые `waitlist_sync_interval` (15 с по умолчанию; первый — через 2 с)
 - Hub без очередей: `WAIT_FOR_TRADE` и `message_queue` удалены; `REMOVE_WAITLIST` — единственный

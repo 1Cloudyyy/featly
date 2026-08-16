@@ -26,16 +26,21 @@ OWNER_ROBLOX_NICK = "migufim"
 # Состояния диалогов: chat_id -> dict
 _dialog_states: dict = {}
 
+# Ожидание подтверждения смены ника (!смена): chat_id -> {"nick", "user_id", "funpay_order_id"}
+_nick_change: dict = {}
+
 
 # ---------------------------------------------------------------- lifecycle
 
 async def init() -> None:
     _dialog_states.clear()
+    _nick_change.clear()
     log.info("order_manager инициализирован (диалоги сброшены)")
 
 
 async def shutdown() -> None:
     _dialog_states.clear()
+    _nick_change.clear()
     log.info("order_manager остановлен")
 
 
@@ -129,6 +134,11 @@ async def handle_new_message(bot, msg) -> None:
     chat_id = msg.chat_id
     text = (msg.text or "").strip()
     if not text:
+        return
+
+    # Ожидание подтверждения смены ника
+    if chat_id in _nick_change:
+        await _handle_nick_confirm(bot, chat_id, text)
         return
 
     if text.startswith("!"):
@@ -263,7 +273,12 @@ async def _handle_dialog_step(bot, chat_id: int, text: str, state: dict) -> None
         else:
             log.info("[диалог %s] заказ %s в waitlist (trade_id=%s)", chat_id, hub_order_id, trade.get("id"))
 
-        orders_cache.set(order_id_str, {"order_id": hub_order_id, "buyer_nickname": nick, "items": items})
+        orders_cache.set(order_id_str, {
+            "order_id": hub_order_id,
+            "buyer_nickname": nick,
+            "items": items,
+            "chat_id": chat_id,
+        })
 
         # 4) Финальные сообщения покупателю
         _send(bot, chat_id, "✅ Добавил тебя в друзья. Заходи в игру!")
@@ -310,6 +325,7 @@ async def _handle_command(bot, chat_id: int, text: str) -> None:
 
 
 async def _cmd_change_nick(bot, chat_id: int, new_nick: str) -> None:
+    """!смена — смена ника покупателя: валидация → подтверждение → обновление в hub."""
     if not new_nick:
         _send(bot, chat_id, "Использование: !смена НовыйНик")
         return
@@ -319,9 +335,56 @@ async def _cmd_change_nick(bot, chat_id: int, new_nick: str) -> None:
         _send(bot, chat_id, f"❌ Ник '{new_nick}' не найден в Roblox")
         return
 
-    _send(bot, chat_id, f"✅ Ник изменён на {new_nick}. Верно? Ответь Да")
-    log.info("!смена: новый ник %s (%s) в чате %s", new_nick, user_id, chat_id)
-    log.warning("!смена: TODO — обновить order/pending_trade в hub и waitlist движка")
+    # Ищем заказ этого чата в кэше
+    found = orders_cache.find_by_chat(chat_id)
+    if found is None:
+        log.warning("!смена: в чате %s нет активного заказа (кэш пуст)", chat_id)
+        _send(bot, chat_id, "⚠️ Не найден активный заказ для смены ника. Напиши поддержке.")
+        return
+
+    funpay_order_id, entry = found
+    _nick_change[chat_id] = {
+        "nick": new_nick,
+        "user_id": user_id,
+        "funpay_order_id": funpay_order_id,
+    }
+    log.info(
+        "!смена: чат %s, заказ funpay=%s, новый ник %s (%s) — жду подтверждения",
+        chat_id, funpay_order_id, new_nick, user_id,
+    )
+    _send(bot, chat_id, f"Ник: {new_nick}. Верно? Ответь Да")
+
+
+async def _handle_nick_confirm(bot, chat_id: int, text: str) -> None:
+    pending = _nick_change.pop(chat_id, None)
+    if pending is None:
+        return
+
+    if text.lower() not in ("да", "yes", "y"):
+        log.info("!смена: подтверждение отклонено (чат %s)", chat_id)
+        _send(bot, chat_id, "Ок, напиши правильный ник через !смена Ник")
+        return
+
+    found = orders_cache.find_by_chat(chat_id)
+    if found is None:
+        log.error("!смена: заказ чата %s исчез из кэша к моменту подтверждения", chat_id)
+        _send(bot, chat_id, "⚠️ Ошибка: заказ не найден. Напиши поддержке.")
+        return
+
+    funpay_order_id, entry = found
+    hub_order_id = entry.get("order_id")
+    res = await backend_client.update_buyer_nickname(hub_order_id, pending["nick"])
+    if res is None:
+        log.error("!смена: hub не принял новый ник для заказа %s", hub_order_id)
+        _send(bot, chat_id, "❌ Не удалось обновить ник. Попробуй позже!")
+        return
+
+    orders_cache.set(funpay_order_id, {**entry, "buyer_nickname": pending["nick"]})
+    log.warning(
+        "!смена: заказ %s: ник обновлён на %s — движок учтёт при следующей синхронизации",
+        hub_order_id, pending["nick"],
+    )
+    _send(bot, chat_id, f"✅ Ник обновлён: {pending['nick']}. Движок учтёт при выдаче.")
 
 
 async def _cmd_screenshot(bot, chat_id: int) -> None:

@@ -3,7 +3,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import Enum, ForeignKey, Index, Integer, String, func
+from sqlalchemy import Enum, ForeignKey, Index, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -35,4 +35,6 @@ class PendingTrade(Base):
 
     __table_args__ = (
         Index("ix_pending_trades_bot_status", "bot_id", "status"),
+        # Один заказ — одна строка ожидания на движок (защита от дублей)
+        UniqueConstraint("order_id", "bot_id", name="uq_pending_order_bot"),
     )

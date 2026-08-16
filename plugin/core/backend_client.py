@@ -133,6 +133,18 @@ class BackendClient:
         log.error("cancel_order: order=%s → %s (err=%s)", order_id, s, err)
         return None
 
+    async def update_buyer_nickname(self, order_id: int, buyer_nickname: str) -> dict | None:
+        """Смена ника покупателя (!смена): обновляет заказ и waitlist движка."""
+        s, data, err = await self._request(
+            "PATCH", f"/orders/{order_id}/nickname",
+            json={"buyer_nickname": buyer_nickname},
+        )
+        if s == 200:
+            log.info("update_buyer_nickname: order=%s → %s", order_id, buyer_nickname)
+            return data
+        log.error("update_buyer_nickname: order=%s → %s (err=%s)", order_id, s, err)
+        return None
+
     # --- Pending Trades ---
 
     async def get_pending_trades(self, bot_id: str) -> list[dict]:

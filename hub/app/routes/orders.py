@@ -11,6 +11,7 @@ from app.models.order import Order, OrderStatus
 from app.models.pending_trade import PendingTrade
 from app.schemas.schemas import (
     OrderCreate,
+    OrderNicknameUpdate,
     OrderResponse,
     OrderStatusUpdate,
     PendingTradeCreate,
@@ -82,6 +83,36 @@ async def update_order(
     )
     if order is None:
         raise HTTPException(status_code=404, detail="Order not found")
+    return OrderResponse.model_validate(order)
+
+
+@router.patch("/{order_id}/nickname", response_model=OrderResponse)
+async def update_order_nickname(
+    order_id: int,
+    data: OrderNicknameUpdate,
+    session: AsyncSession = Depends(get_session),
+) -> OrderResponse:
+    """Смена ника покупателя (!смена): обновляет заказ и waitlist — движок подхватит при пулле."""
+    nick = data.buyer_nickname.strip()
+    if not nick:
+        raise HTTPException(status_code=422, detail="buyer_nickname пуст")
+
+    order = await get_order(session, order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.status in (OrderStatus.COMPLETED, OrderStatus.CANCELLED, OrderStatus.REFUNDED):
+        raise HTTPException(status_code=409, detail=f"Заказ в терминальном статусе {order.status.value}")
+
+    old_nick = order.buyer_nickname
+    order.buyer_nickname = nick
+    result = await session.execute(
+        select(PendingTrade).where(PendingTrade.order_id == order_id)
+    )
+    for trade in result.scalars().all():
+        trade.buyer_nickname = nick
+    await session.commit()
+    await session.refresh(order)
+    logger.info(f"Nickname updated: order {order_id}: {old_nick} → {nick}")
     return OrderResponse.model_validate(order)
 
 

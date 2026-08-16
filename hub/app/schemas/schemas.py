@@ -22,6 +22,10 @@ class OrderStatusUpdate(BaseModel):
     proof_url: str | None = None
 
 
+class OrderNicknameUpdate(BaseModel):
+    buyer_nickname: str
+
+
 class OrderResponse(BaseModel):
     id: int
     funpay_order_id: str

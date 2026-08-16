@@ -1,13 +1,13 @@
 """Runtime data — кэш активных заказов, диалоги.
 
-Логирование операций кэша: загрузка/сохранение/удаление, чтобы отлавливать
-расхождения между плагином и hub'ом.
+Логирование операций кэша + threading.Lock (кэш могут трогать несколько хендлеров).
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import threading
 from pathlib import Path
 
 from loguru import logger
@@ -22,6 +22,7 @@ class OrdersCache:
     """In-memory + disk cache активных заказов (funpay_order_id → hub order)."""
 
     def __init__(self) -> None:
+        self._lock = threading.Lock()
         self._cache: dict[str, dict] = {}
         self._load()
 
@@ -40,21 +41,33 @@ class OrdersCache:
         )
 
     def get(self, funpay_order_id: str) -> dict | None:
-        return self._cache.get(funpay_order_id)
+        with self._lock:
+            return self._cache.get(funpay_order_id)
+
+    def find_by_chat(self, chat_id: int) -> tuple[str, dict] | None:
+        """Найти запись по chat_id (для !смена). Возвращает (funpay_order_id, entry)."""
+        with self._lock:
+            for key, entry in self._cache.items():
+                if entry.get("chat_id") == chat_id:
+                    return key, entry
+        return None
 
     def set(self, funpay_order_id: str, data: dict) -> None:
-        self._cache[funpay_order_id] = data
-        self._save()
+        with self._lock:
+            self._cache[funpay_order_id] = data
+            self._save()
         log.debug("Кэш: добавлен заказ %s → %s", funpay_order_id, data.get("order_id"))
 
     def remove(self, funpay_order_id: str) -> None:
-        if funpay_order_id in self._cache:
-            self._cache.pop(funpay_order_id, None)
-            self._save()
-            log.info("Кэш: заказ %s удалён", funpay_order_id)
+        with self._lock:
+            if funpay_order_id in self._cache:
+                self._cache.pop(funpay_order_id, None)
+                self._save()
+                log.info("Кэш: заказ %s удалён", funpay_order_id)
 
     def all(self) -> dict[str, dict]:
-        return self._cache.copy()
+        with self._lock:
+            return self._cache.copy()
 
 
 # Singleton
