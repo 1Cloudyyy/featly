@@ -79,6 +79,63 @@ VDS (центр управления)                     Mini-PC / Windows (м�
 
 ---
 
+## 📁 Файловая структура v3
+
+Принятые решения (2026-08-16): `backend/` → `hub/`, React-админка → `legacy/web-admin/`,
+**один git-репозиторий** на весь проект.
+
+```
+featly/
+├── README.md
+├── pyproject.toml              # линт/тайпчеки для всего Python
+├── .env.example                # ВСЕ секреты разом (FEATLY_API_KEY, WS_SECRET, TG_ID...)
+├── docker-compose.yml          # опционально (SQLite — можно и без него)
+├── docs/
+│   ├── FEATLY_v3_CONCEPT.md    # этот концепт
+│   ├── roadmap.md              # шаги 0–6 (todo)
+│   └── legacy/                 # старые v2-документы (аудиты, анализ)
+│
+├── plugin/                     # модуль funpay-universal 1.17 (имя модуля = featly)
+│   ├── __init__.py             # BOT_EVENT_HANDLERS / FUNPAY_EVENT_HANDLERS / TELEGRAM_BOT_ROUTERS
+│   ├── meta.py
+│   ├── settings.py             # SettingsFile (config.json через бота)
+│   ├── data.py                 # DataFile (orders_cache и т.п.)
+│   ├── handlers/
+│   │   ├── funpay.py           # события сделок/сообщений
+│   │   └── telegram_admin.py   # панель (экраны, FSM)
+│   └── core/
+│       ├── backend_client.py   # REST к hub
+│       ├── roblox_api.py       # ник → id, заявка в друзья
+│       └── lots_sync.py        # авто-поиск лота + «Наличие» (автозаполнение)
+│
+├── hub/                        # «центр управления» (бывший backend; SQLite)
+│   ├── app/
+│   │   ├── models/  routers/  services/  ws/
+│   │   └── main.py             # create_all при старте
+│   └── tests/
+│
+├── engine/                     # бе Windows (без концептуальных изменений)
+│   ├── main.py  trade_flow.py  ws_client.py  cv_matcher.py  ...
+│   └── profiles/ templates/ tests/
+│
+├── legacy/
+│   └── web-admin/              # React-админка «на антресоль», не в compose
+│
+└── scripts/                    # системная обвязка (systemd, планировщик, logrotate)
+```
+
+Пояснения:
+- `backend/` → **`hub/`** — переименование отражает роль: центр управления (waitlist,
+  инвентарь, WS-связь с движками), а не просто «HTTP-бэкенд».
+- **`plugin/`** — структура подчинена требованиям funpay-universal 1.17 (официальные точки
+  входа: `BOT_EVENT_HANDLERS`, `FUNPAY_EVENT_HANDLERS`, `TELEGRAM_BOT_ROUTERS`).
+- **`legacy/web-admin/`** — React-панель остаётся в репо, но не участвует в сборке.
+- Корневые `*.md` (аудиты, changelog, dev_notes) переносятся в `docs/legacy/`.
+- `logs/` — runtime-мусор, не коммитится (добавляется в `.gitignore`).
+- Перестройка структуры выполняется в начале реализации v3 (шаг 0).
+
+---
+
 ## 3. Telegram-панель админки (`/admin`)
 
 Каркас переносится из плагина playerok (`minecraft_dropship/admin_handlers.py`):
@@ -204,6 +261,7 @@ def find_lot_by_title(lots, query: str):
 | # | Шаг | Эффект |
 |---|---|---|
 | 0 | **Миграция плагина на интерфейс 1.17**: `FUNPAY_EVENT_HANDLERS`/`BOT_EVENT_HANDLERS`/`TELEGRAM_BOT_ROUTERS`, хендлеры `(bot, event)`, `bot.send_message` | без этого панель и диалоги не работают в 1.17 |
+| 0a | **Перестройка структуры**: `backend/` → `hub/`, `admin/` → `legacy/web-admin/`, docs → `docs/legacy`, `.env.example` | чистый корень, по которым чище вести v3 |
 | 1 | Telegram-панель: `/admin`, экраны инвентаря и настроек (каркас из playerok) | базис для всего |
 | 2 | Инвентарь: CRUD через панель + `DELETE /inventory` на бэкенде | ручное ведение стока |
 | 3 | Автозаполнение «Наличия»: авто-поиск лота + `get_lot_fields`/`save_lot` | главная фича раздела 4 |
