@@ -102,14 +102,58 @@ async def handle_new_order(bot, order) -> None:
         _send(bot, chat_id, "❌ Предмет закончился. Оформляю возврат...")
         return
 
+    settings = load_settings()
+    nickname_source = settings.get("nickname_source", "auto")
+
+    # Ник из обязательного поля заказа «Имя персонажа» (Order.player)
+    player_nick = None
+    if nickname_source != "ask":
+        try:
+            full_order = bot.account.get_order(getattr(order, "id", 0))
+            player_nick = (getattr(full_order, "player", None) or "").strip() or None
+        except Exception as e:
+            log.warning("NEW_ORDER %s: не удалось получить полный заказ (player): %s", order_id_str, e)
+        if player_nick:
+            log.info("NEW_ORDER %s: ник из «Имя персонажа»: %s", order_id_str, player_nick)
+
+    # Режим auto_trusted: ник найден в Roblox 1-в-1 — финализируем без подтверждения
+    if player_nick and nickname_source == "auto_trusted":
+        user_id = await validate_username(player_nick)
+        if user_id is not None:
+            log.info(
+                "NEW_ORDER %s: auto_trusted — ник '%s' найден 1-в-1, пропускаем подтверждение",
+                order_id_str, player_nick,
+            )
+            state = {
+                "step": "confirm_nick",
+                "order_id": order_id_str,
+                "items": items,
+                "item_name": item_name,
+                "buyer_nickname": player_nick,
+                "buyer_user_id": user_id,
+            }
+            _dialog_states[chat_id] = state
+            await _finish_dialog(bot, chat_id, state)
+            return
+        log.info(
+            "NEW_ORDER %s: auto_trusted — ник '%s' не найден 1-в-1, потребуем подтверждение",
+            order_id_str, player_nick,
+        )
+
+    # Обычный старт диалога
     _dialog_states[chat_id] = {
-        "step": "waiting_nickname",
+        "step": "confirm_nick" if player_nick else "waiting_nickname",
         "order_id": order_id_str,
         "items": items,
         "item_name": item_name,
+        **({"buyer_nickname": player_nick} if player_nick else {}),
     }
-    log.info("Диалог запущен: chat=%s order=%s items=%s", chat_id, order_id_str, items)
-    _send(bot, chat_id, "Привет! Напиши свой ник в Roblox:")
+    if player_nick:
+        log.info("Диалог запущен (подтверждение ника): chat=%s order=%s ник=%s", chat_id, order_id_str, player_nick)
+        _send(bot, chat_id, f"Твой ник для выдачи: {player_nick}. Верно? Ответь Да")
+    else:
+        log.info("Диалог запущен (запрос ника): chat=%s order=%s", chat_id, order_id_str)
+        _send(bot, chat_id, "Привет! Напиши свой ник в Roblox:")
 
 
 async def handle_system_message(bot, msg) -> None:
@@ -197,6 +241,84 @@ async def _finalize_order(bot, chat_id, funpay_order_id: str, *, completed: bool
 
 # ---------------------------------------------------------------- диалог
 
+async def _finish_dialog(bot, chat_id: int, state: dict) -> None:
+    """Финализация диалога: (опц.) заявка в друзья → запись в hub → waitlist → сообщения."""
+    nick = state["buyer_nickname"]
+    user_id = state.get("buyer_user_id")
+    items = state["items"]
+    order_id_str = state["order_id"]
+    settings = load_settings()
+    bot_id = settings.get("bot_id", "bot_main")
+
+    # 1) Заявка в друзья (настройка add_friends)
+    if settings.get("add_friends", True):
+        if not user_id:
+            log.warning("[диалог %s] заявка пропущена: ник '%s' не найден в Roblox (userId нет)", chat_id, nick)
+            _send(bot, chat_id, f"⚠️ Не удалось отправить заявку. Добавь меня сам: {OWNER_ROBLOX_NICK}")
+        else:
+            try:
+                sent = await request_friendship(user_id)
+                if not sent:
+                    log.warning("[диалог %s] заявка не отправлена (userId=%s)", chat_id, user_id)
+                    _send(bot, chat_id, f"⚠️ Не удалось отправить заявку. Добавь меня сам: {OWNER_ROBLOX_NICK}")
+            except RobloxAuthError as e:
+                log.error("[диалог %s] Roblox-ошибка (cookie): %s", chat_id, e)
+                _send(bot, chat_id, "⚠️ Техническая пауза, скоро продолжим...")
+                _dialog_states.pop(chat_id, None)
+                return
+    else:
+        log.info("[диалог %s] заявка в друзья пропущена (add_friends=false)", chat_id)
+
+    # 2) Создание заказа в hub
+    order = await backend_client.create_order(
+        funpay_order_id=order_id_str,
+        buyer_nickname=nick,
+        buyer_user_id=user_id,
+        items=items,
+    )
+    if not order:
+        log.error("[диалог %s] hub не создал заказ (funpay=%s) — возвращаем диалог назад", chat_id, order_id_str)
+        _send(bot, chat_id, "⚠️ Не удалось зарегистрировать заказ. Напиши ник ещё раз:")
+        state["step"] = "waiting_nickname"
+        return
+
+    hub_order_id = order["id"]
+    log.info("[диалог %s] заказ создан: funpay=%s → hub=%s", chat_id, order_id_str, hub_order_id)
+
+    # 3) Внесение в waitlist движка
+    trade = await backend_client.create_pending_trade(
+        order_id=hub_order_id,
+        bot_id=bot_id,
+        buyer_nickname=nick,
+        buyer_user_id=user_id,
+        items=items,
+    )
+    if not trade:
+        log.error("[диалог %s] pending_trade НЕ создан — движок может не выдать заказ %s!", chat_id, hub_order_id)
+    else:
+        log.info("[диалог %s] заказ %s в waitlist (trade_id=%s)", chat_id, hub_order_id, trade.get("id"))
+
+    orders_cache.set(order_id_str, {
+        "order_id": hub_order_id,
+        "buyer_nickname": nick,
+        "items": items,
+        "chat_id": chat_id,
+    })
+
+    # 4) Финальные сообщения покупателю
+    if settings.get("add_friends", True):
+        _send(bot, chat_id, "✅ Добавил тебя в друзья. Заходи в игру!")
+    else:
+        _send(bot, chat_id, "✅ Заказ принят. Заходи в игру!")
+    server_link = settings.get("static_server_link", "")
+    if server_link:
+        _send(bot, chat_id, f"Сервер: {server_link}")
+    _send(bot, chat_id, "Кинь мне трейд через TAB → Trade.")
+
+    _dialog_states.pop(chat_id, None)
+    log.info("Диалог завершён: %s (%s), заказ %s", nick, user_id, order_id_str)
+
+
 async def _handle_dialog_step(bot, chat_id: int, text: str, state: dict) -> None:
     step = state["step"]
     log.debug("[диалог %s] шаг=%s текст=%r", chat_id, step, text[:60])
@@ -217,78 +339,30 @@ async def _handle_dialog_step(bot, chat_id: int, text: str, state: dict) -> None
         state["step"] = "confirming"
         _send(bot, chat_id, f"Ник: {nick}. Верно? Ответь Да")
 
-    elif step == "confirming":
+    elif step in ("confirming", "confirm_nick"):
         if text.lower() not in ("да", "yes", "y"):
             log.info("[диалог %s] подтверждение отклонено («%s») — просим исправить ник", chat_id, text)
             _send(bot, chat_id, "Ок, напиши правильный ник:")
             state["step"] = "waiting_nickname"
             return
 
-        nick = state["buyer_nickname"]
-        user_id = state["buyer_user_id"]
-        items = state["items"]
-        order_id_str = state["order_id"]
-
-        # 1) Заявка в друзья
-        try:
-            sent = await request_friendship(user_id)
-            if not sent:
-                log.warning("[диалог %s] заявка не отправлена (userId=%s) — даём альтернативу", chat_id, user_id)
-                _send(bot, chat_id, f"⚠️ Не удалось отправить заявку. Попробуй добавить меня сам: {OWNER_ROBLOX_NICK}")
-        except RobloxAuthError as e:
-            log.error("[диалог %s] Roblox-ошибка (cookie): %s", chat_id, e)
-            _send(bot, chat_id, "⚠️ Техническая пауза, скоро продолжим...")
-            _dialog_states.pop(chat_id, None)
-            return
-
-        # 2) Создание заказа в hub
-        settings = load_settings()
-        bot_id = settings.get("bot_id", "bot_main")
-
-        order = await backend_client.create_order(
-            funpay_order_id=order_id_str,
-            buyer_nickname=nick,
-            buyer_user_id=user_id,
-            items=items,
-        )
-        if not order:
-            log.error("[диалог %s] hub не создал заказ (funpay=%s) — возвращаем диалог назад", chat_id, order_id_str)
-            _send(bot, chat_id, "⚠️ Не удалось зарегистрировать заказ. Напиши ник ещё раз:")
+        nick = state.get("buyer_nickname")
+        if not nick:
+            log.error("[диалог %s] подтверждение без ника — возвращаем к запросу", chat_id)
             state["step"] = "waiting_nickname"
+            _send(bot, chat_id, "Напиши свой ник в Roblox:")
             return
 
-        hub_order_id = order["id"]
-        log.info("[диалог %s] заказ создан: funpay=%s → hub=%s", chat_id, order_id_str, hub_order_id)
+        # Мягкая проверка ника в Roblox (не блокируем при подтверждении покупателя)
+        if not state.get("buyer_user_id"):
+            user_id = await validate_username(nick)
+            if user_id is None:
+                log.warning("[диалог %s] ник '%s' не найден в Roblox, но продолжено (покупатель подтвердил)", chat_id, nick)
+            else:
+                log.info("[диалог %s] ник '%s' подтверждён в Roblox → userId=%s", chat_id, nick, user_id)
+            state["buyer_user_id"] = user_id
 
-        # 3) Внесение в waitlist движка
-        trade = await backend_client.create_pending_trade(
-            order_id=hub_order_id,
-            bot_id=bot_id,
-            buyer_nickname=nick,
-            buyer_user_id=user_id,
-            items=items,
-        )
-        if not trade:
-            log.error("[диалог %s] pending_trade НЕ создан — движок может не выдать заказ %s!", chat_id, hub_order_id)
-        else:
-            log.info("[диалог %s] заказ %s в waitlist (trade_id=%s)", chat_id, hub_order_id, trade.get("id"))
-
-        orders_cache.set(order_id_str, {
-            "order_id": hub_order_id,
-            "buyer_nickname": nick,
-            "items": items,
-            "chat_id": chat_id,
-        })
-
-        # 4) Финальные сообщения покупателю
-        _send(bot, chat_id, "✅ Добавил тебя в друзья. Заходи в игру!")
-        server_link = settings.get("static_server_link", "")
-        if server_link:
-            _send(bot, chat_id, f"Сервер: {server_link}")
-        _send(bot, chat_id, "Кинь мне трейд через TAB → Trade.")
-
-        _dialog_states.pop(chat_id, None)
-        log.info("Диалог завершён: %s (%s), заказ %s", nick, user_id, order_id_str)
+        await _finish_dialog(bot, chat_id, state)
 
     elif step == "cancel_confirm":
         if text.lower() in ("да", "yes", "y"):

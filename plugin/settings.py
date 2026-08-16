@@ -20,6 +20,7 @@ SETTINGS_FILE = DATA_DIR / "settings.json"
 DEFAULT_SETTINGS = {
     "backend_url": "http://localhost:8000",
     "backend_ws_url": "ws://localhost:8000/ws/engine",
+    "api_key": "",  # X-API-Key для запросов к hub (обязателен!)
     "roblox_cookie": "",
     "low_stock_threshold": 3,
     "telegram_alert_chat_id": "",
@@ -29,6 +30,9 @@ DEFAULT_SETTINGS = {
     "admin_tg_id": "",
     # Автосинхронизация «Наличия» лотов FunPay при изменении инвентаря
     "autosync_lots": True,
+    # Умная автовыдача
+    "add_friends": True,            # отправлять запрос в друзья после оплаты
+    "nickname_source": "auto",      # auto | auto_trusted | ask — откуда брать ник покупателя
     # Связки item_key → {lot_id, title} (кэш после авто-поиска / ручной привязки)
     "lot_map": {},
 }

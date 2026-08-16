@@ -92,6 +92,14 @@ featly/
 - Hub-эндпоинты панели: `GET /stats`, `POST /inventory`, `DELETE /inventory/{key}`
 - Callback-префикс: `cb:*`; FSM-стейты `PanelStates`
 
+### Умная автовыдача (эшо C, 2026-08-16)
+- Ник покупателя: `Order.player` («Имя персонажа», обязательно на FunPay) при режимах
+  `auto`/`auto_trusted`; `ask` — запрос с нуля
+- `auto_trusted` — ник найден в Roblox 1-в-1 → без подтверждения; иначе подтверждение
+- `add_friends` — заявка в друзья после оплаты вкл/выкл (подтверждение ника не отменяет)
+- Единая финализация диалога — `_finish_dialog()` (заявка → order → waitlist → сообщения)
+- Плагин авторизуется `X-API-Key` из `settings.json` (`api_key`) — без него hub возвращает 403
+
 ### v3.1 «полировка» (2026-08-16)
 - `!смена`: `_nick_change` FSM-подтверждение → `PATCH /orders/{id}/nickname` (заказ + waitlist);
   движок подхватит при следующем пулле. В orders_cache добавлен `chat_id` + `find_by_chat`

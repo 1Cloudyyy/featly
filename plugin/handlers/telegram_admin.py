@@ -31,11 +31,20 @@ SETTING_FIELDS: dict[str, str] = {
     "backend_url": "📡 Hub URL",
     "bot_id": "🤖 bot_id",
     "roblox_cookie": "🔑 Roblox cookie",
+    "api_key": "🔐 Hub API-key",
     "low_stock_threshold": "📉 Порог остатка",
     "telegram_alert_chat_id": "🔔 Чат алертов",
     "admin_tg_id": "🆔 Admin TG ID",
     "static_server_link": "🔗 Ссылка сервера",
     "autosync_lots": "🛍 Авто-синк лотов",
+}
+
+# Режимы источника ника для выдачи (нормирование в @delivery)
+NICKNAME_MODES = ("auto", "auto_trusted", "ask")
+NICKNAME_LABELS = {
+    "auto": "🎮 Ник: подтверждение (из заказа)",
+    "auto_trusted": "🎮 Ник: авто-доверие (без вопросов)",
+    "ask": "🎮 Ник: всегда спрашивать",
 }
 
 
@@ -130,7 +139,20 @@ def _kb_main():
         [
             [("🤖 Движок", "cb:engine"), ("📦 Инвентарь", "cb:inv")],
             [("📋 Заказы", "cb:orders"), ("📊 Статистика", "cb:stats")],
-            [("⚙️ Настройки", "cb:settings"), ("🧪 Диагностика", "cb:diag")],
+            [("🚀 Автовыдача", "cb:delivery"), ("🧪 Диагностика", "cb:diag")],
+            [("⚙️ Настройки", "cb:settings")],
+        ]
+    )
+
+
+def _kb_delivery(add_friends: bool, nickname_source: str):
+    friend_label = f"🔑 Запрос в друзья: {'вкл' if add_friends else 'выкл'}"
+    nick_label = NICKNAME_LABELS.get(nickname_source, NICKNAME_LABELS["auto"])
+    return _kb(
+        [
+            [(friend_label, "cb:del_toggle_friends")],
+            [(nick_label, "cb:del_cycle_nick")],
+            [("⬅️ Назад", "cb:main")],
         ]
     )
 
@@ -634,6 +656,51 @@ async def cb_stats(cb: CallbackQuery) -> None:
     await _screen(cb, text, _kb([[("🔄 Обновить", "cb:stats")], _BACK]))
 
 
+# ---------------------------------------------------------------- автовыдача
+
+@router.callback_query(F.data == "cb:delivery")
+async def cb_delivery(cb: CallbackQuery) -> None:
+    if not _is_admin(cb.from_user.id):
+        await cb.answer("⛔ Нет доступа", show_alert=True)
+        return
+    settings = load_settings()
+    log.info("Панель: экран автовыдачи (add_friends=%s, nick=%s)",
+             settings.get("add_friends"), settings.get("nickname_source"))
+    text = (
+        "🚀 Настройки выдачи\n\n"
+        f"{'🟢' if settings.get('add_friends', True) else '🔴'} Запрос в друзья — "
+        f"{'включён' if settings.get('add_friends', True) else 'выключен'}\n"
+        f"🎮 Ник покупателя: {NICKNAME_LABELS.get(settings.get('nickname_source'), 'auto')}\n\n"
+        "Подсказка: выход — «⬅️ Назад»."
+    )
+    await _screen(cb, text, _kb_delivery(settings.get("add_friends", True), settings.get("nickname_source", "auto")))
+
+
+@router.callback_query(F.data == "cb:del_toggle_friends")
+async def cb_del_toggle_friends(cb: CallbackQuery) -> None:
+    if not _is_admin(cb.from_user.id):
+        await cb.answer("⛔ Нет доступа", show_alert=True)
+        return
+    current = load_settings().get("add_friends", True)
+    update_settings(add_friends=not current)
+    log.info("Панель: add_friends → %s", not current)
+    await cb_delivery(cb)
+
+
+@router.callback_query(F.data == "cb:del_cycle_nick")
+async def cb_del_cycle_nick(cb: CallbackQuery) -> None:
+    if not _is_admin(cb.from_user.id):
+        await cb.answer("⛔ Нет доступа", show_alert=True)
+        return
+    current = load_settings().get("nickname_source", "auto")
+    if current not in NICKNAME_MODES:
+        current = "auto"
+    nxt = NICKNAME_MODES[(NICKNAME_MODES.index(current) + 1) % len(NICKNAME_MODES)]
+    update_settings(nickname_source=nxt)
+    log.info("Панель: nickname_source → %s", nxt)
+    await cb_delivery(cb)
+
+
 # ---------------------------------------------------------------- настройки
 
 @router.callback_query(F.data == "cb:settings")
@@ -646,8 +713,8 @@ async def cb_settings(cb: CallbackQuery) -> None:
     lines = ["⚙️ Настройки:\n"]
     for field, label in SETTING_FIELDS.items():
         value = settings.get(field, "")
-        if field == "roblox_cookie":
-            value = "🟢 установлен" if value else "🔴 пусто"
+        if field in ("roblox_cookie", "api_key"):
+            value = "🟢 задан" if value else "🔴 пусто"
         elif field == "low_stock_threshold":
             value = str(value)
         elif field == "autosync_lots":

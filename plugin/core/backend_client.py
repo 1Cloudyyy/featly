@@ -48,6 +48,17 @@ class BackendClient:
         """Выполнить запрос. Возвращает (status, json|None, error_text|None)."""
         session = await self._get_session()
         url = self._url(path)
+
+        # Авторизация: X-API-Key из настроек
+        api_key = load_settings().get("api_key", "").strip()
+        headers = dict(kwargs.pop("headers", {}) or {})
+        if api_key:
+            headers["X-API-Key"] = api_key
+        elif "X-API-Key" not in headers:
+            log.warning("%s %s — api_key не задан в настройках, запрос уйдёт без ключа!", method, path)
+        if headers:
+            kwargs["headers"] = headers
+
         started = time.perf_counter()
         try:
             async with session.request(method, url, **kwargs) as resp:
