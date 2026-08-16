@@ -8,12 +8,16 @@ User=featly
 Group=featly
 WorkingDirectory=/opt/featly/hub
 Environment=PATH=/opt/featly/hub/venv/bin
-# SQLite по умолчанию (лёгкий деплой). Для PostgreSQL:
+# SQLite в системном каталоге /var/lib/featly-hub (создаётся systemd ДО namespace).
+# Для PostgreSQL:
 # Environment=FEATLY_DATABASE_URL=postgresql+asyncpg://featly:featly@localhost:5432/featly
-Environment=FEATLY_DATABASE_URL=sqlite+aiosqlite:///opt/featly/hub/data/featly.db
+Environment=FEATLY_DATABASE_URL=sqlite+aiosqlite:///var/lib/featly-hub/featly.db
 Environment=FEATLY_WS_SECRET=change-me-in-production
-# Создание служебных каталогов до запуска (иначе ProtectSystem=strict падает)
-ExecStartPre=-/usr/bin/install -d -o featly -g featly -m 0755 /opt/featly/hub/data /opt/featly/hub/logs /opt/featly/hub/uploads
+# Каталоги, которые systemd создаёт сам (с правами featly) до настройки sandbox
+StateDirectory=featly-hub
+LogsDirectory=featly-hub
+# Uploads — подкаталог StateDirectory (существует к моменту ExecStartPre)
+ExecStartPre=-/usr/bin/install -d -o featly -g featly -m 0755 /var/lib/featly-hub/uploads
 ExecStart=/opt/featly/hub/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=5
@@ -27,7 +31,7 @@ SyslogIdentifier=featly-hub
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/featly/hub/data /opt/featly/hub/logs /opt/featly/hub/uploads
+ReadWritePaths=/var/lib/featly-hub /var/log/featly-hub
 
 [Install]
 WantedBy=multi-user.target

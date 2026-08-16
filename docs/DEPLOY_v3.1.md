@@ -89,12 +89,12 @@ python3.12 -m venv venv            # (или python3)
 Зависимости hub (ставит requirements): fastapi, uvicorn, sqlalchemy[asyncio],
 **aiosqlite**, **aiohttp**, **cryptography**, websockets, pydantic-settings, loguru.
 
-### 2.2 Первый запуск — создания секретов и БД
+### 2.2 Первый запуск — создание секретов и БД
 ```bash
 ./venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 При первом старте hub сам:
-- создаст **`featly.db`** (SQLite) и все таблицы;
+- создаст **SQLite-БД** (в юните — `/var/lib/featly-hub/featly.db`; при ручном запуске — `./featly.db`) и все таблицы;
 - создаст корневой **`.env`** с секретами:
   `FEATLY_WS_SECRET=…`, `FEATLY_API_KEY=…`, `FEATLY_COOKIE_KEY=…`.
 
