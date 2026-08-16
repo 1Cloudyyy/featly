@@ -92,6 +92,12 @@ featly/
 - Hub-эндпоинты панели: `GET /stats`, `POST /inventory`, `DELETE /inventory/{key}`
 - Callback-префикс: `cb:*`; FSM-стейты `PanelStates`
 
+### Настройка hub из Telegram (эшо B, 2026-08-16)
+- `app_settings` (key→value) + `/settings` (GET/PATCH, auth api-key); `/settings/secrets`
+- Фоновый мониторинг движков (`services/monitor.py`): offline > порога → TG-алерт
+  (token/chat из настроек hub — применяется без рестарта); throttle 10 мин/движок
+- Панель: «🏠 Hub» (три ключа), «🔑 Подключения» (env-блок для движка), расширенные настройки
+
 ### Умная автовыдача (эшо C, 2026-08-16)
 - Ник покупателя: `Order.player` («Имя персонажа», обязательно на FunPay) при режимах
   `auto`/`auto_trusted`; `ask` — запрос с нуля

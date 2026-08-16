@@ -95,6 +95,8 @@ featly/
 | GET | /bots | List bots |
 | PATCH | /bots/:id/heartbeat | Bot heartbeat |
 | GET | /stats | Статистика (заказы, выданные сегодня, waitlist, движки) |
+| GET/PATCH | /settings | Настройки hub (TG-алерты, порог офлайна) — из Telegram-панели |
+| GET | /settings/secrets | Секреты (ws_secret, api_key) для настройки движка |
 
 ### WebSocket (Engine)
 

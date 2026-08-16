@@ -29,14 +29,23 @@ router = Router()
 # Поля настроек, редактируемые из панели (кнопка показывает текущее значение)
 SETTING_FIELDS: dict[str, str] = {
     "backend_url": "📡 Hub URL",
+    "backend_ws_url": "🌐 WS URL движка",
     "bot_id": "🤖 bot_id",
     "roblox_cookie": "🔑 Roblox cookie",
     "api_key": "🔐 Hub API-key",
     "low_stock_threshold": "📉 Порог остатка",
     "telegram_alert_chat_id": "🔔 Чат алертов",
+    "alert_on_zero": "🔕 Алерт при нуле",
     "admin_tg_id": "🆔 Admin TG ID",
     "static_server_link": "🔗 Ссылка сервера",
     "autosync_lots": "🛍 Авто-синк лотов",
+}
+
+# Ключи hub-настроек, редактируемые с экрана «🏠 Hub»
+HUB_SETTING_FIELDS: dict[str, str] = {
+    "telegram_bot_token": "🔑 TG bot token",
+    "telegram_alert_chat_id": "📨 Чат алертов hub",
+    "engine_offline_threshold": "⏱ Offline-порог, мин",
 }
 
 # Режимы источника ника для выдачи (нормирование в @delivery)
@@ -58,6 +67,7 @@ class PanelStates(StatesGroup):
     setting_value = State()
     lot_id = State()
     confirm_order = State()
+    hub_value = State()
 
 
 # ---------------------------------------------------------------- helpers
@@ -140,9 +150,23 @@ def _kb_main():
             [("🤖 Движок", "cb:engine"), ("📦 Инвентарь", "cb:inv")],
             [("📋 Заказы", "cb:orders"), ("📊 Статистика", "cb:stats")],
             [("🚀 Автовыдача", "cb:delivery"), ("🧪 Диагностика", "cb:diag")],
+            [("🏠 Hub", "cb:hub"), ("🔑 Подключения", "cb:con")],
             [("⚙️ Настройки", "cb:settings")],
         ]
     )
+
+
+def _kb_hub(current: dict[str, str]):
+    rows = []
+    for key, label in HUB_SETTING_FIELDS.items():
+        value = current.get(key, "")
+        if key == "telegram_bot_token":
+            shown = "🟢 задан" if value else "🔴 пусто"
+        else:
+            shown = str(value)[:30] if value else "—"
+        rows.append([(f"✏️ {label}: {shown}", f"cb:hub_edit:{key}")])
+    rows.append([("🔄 Обновить", "cb:hub"), ("⬅️ Назад", "cb:main")])
+    return _kb(rows)
 
 
 def _kb_delivery(add_friends: bool, nickname_source: str):
@@ -701,6 +725,109 @@ async def cb_del_cycle_nick(cb: CallbackQuery) -> None:
     await cb_delivery(cb)
 
 
+# ---------------------------------------------------------------- hub
+
+@router.callback_query(F.data == "cb:hub")
+async def cb_hub(cb: CallbackQuery) -> None:
+    if not _is_admin(cb.from_user.id):
+        await cb.answer("⛔ Нет доступа", show_alert=True)
+        return
+    data = await backend_client.get_hub_settings()
+    if data is None:
+        await cb.answer("❌ Hub недоступен", show_alert=True)
+        return
+    current = data.get("settings", {})
+    log.info("Панель: экран Hub (%s настроек)", len(current))
+    text = ["🏠 Hub — настройки сервера:\n"]
+    for key, label in HUB_SETTING_FIELDS.items():
+        value = current.get(key, "")
+        if key == "telegram_bot_token":
+            shown = "🟢 задан" if value else "🔴 пусто"
+        else:
+            shown = str(value)[:40] if value else "—"
+        text.append(f"{label}: {shown}")
+    if not current.get("telegram_bot_token") or not current.get("telegram_alert_chat_id"):
+        text.append("\n⚠️ Настрой канал алертов — движки будут молчать об офлайне!")
+    await _screen(cb, "\n".join(text), _kb_hub(current))
+
+
+@router.callback_query(F.data.startswith("cb:hub_edit:"))
+async def cb_hub_edit(cb: CallbackQuery, state: FSMContext) -> None:
+    if not _is_admin(cb.from_user.id):
+        await cb.answer("⛔ Нет доступа", show_alert=True)
+        return
+    key = cb.data.split(":", 2)[2]
+    if key not in HUB_SETTING_FIELDS:
+        await cb.answer("Неизвестная настройка", show_alert=True)
+        return
+    await state.clear()
+    await state.set_state(PanelStates.hub_value)
+    await state.update_data(hub_field=key)
+    log.info("Панель: редактирование hub-настройки %s", key)
+    await _screen(cb, f"✏️ {HUB_SETTING_FIELDS[key]}\nВведи новое значение:", None)
+
+
+@router.message(PanelStates.hub_value)
+async def fsm_hub_value(message: Message, state: FSMContext) -> None:
+    if message.from_user is None:
+        return
+    if not _is_admin(message.from_user.id):
+        return
+    data = await state.get_data()
+    key = data.get("hub_field")
+    await state.clear()
+    if key is None or key not in HUB_SETTING_FIELDS:
+        return
+
+    value = message.text.strip()
+    if key == "engine_offline_threshold":
+        try:
+            value = str(int(value))
+        except ValueError:
+            await message.answer("❌ Порог должен быть числом (минуты). Попробуй снова (/admin → Hub)")
+            return
+
+    res = await backend_client.update_hub_settings({key: value})
+    if res is None:
+        await message.answer("❌ Hub не принял настройку (проверь api_key и сеть)")
+        log.error("Панель: hub-настройка %s не применена", key)
+    else:
+        log.info("Панель: hub-настройка %s → %s", key, value)
+        await message.answer(f"✅ {HUB_SETTING_FIELDS[key]} обновлён")
+    await _screen(message, await _main_text(), _kb_main())
+
+
+# ---------------------------------------------------------------- подключения
+
+@router.callback_query(F.data == "cb:con")
+async def cb_connections(cb: CallbackQuery) -> None:
+    if not _is_admin(cb.from_user.id):
+        await cb.answer("⛔ Нет доступа", show_alert=True)
+        return
+    secrets = await backend_client.get_secrets()
+    if secrets is None:
+        await cb.answer("❌ Hub недоступен", show_alert=True)
+        return
+
+    settings = load_settings()
+    bot_id = settings.get("bot_id", "bot_main")
+    backend_url = str(settings.get("backend_url", "")).rstrip("/")
+    ws_host = backend_url.replace("http://", "").replace("https://", "")
+    ws_url = f"ws://{ws_host}/ws/engine" if secrets.get("ws_secret") else "?"
+
+    text = (
+        "🔑 Подключения\n\n"
+        f"<b>Env-блок для движка (Mini-ПК):</b>\n"
+        f"<code>FEATLY_WS_URL={ws_url}\n"
+        f"FEATLY_BOT_ID={bot_id}\n"
+        f"FEATLY_WS_SECRET={secrets.get('ws_secret')}</code>\n\n"
+        f"Hub API-key: <code>{secrets.get('api_key')}</code>\n"
+        "⚠️ Секреты видны только через панель. Храни их в безопасном месте."
+    )
+    log.info("Панель: экран подключений (env-блок для движка показан)")
+    await _screen(cb, text, _kb([[("⬅️ Назад", "cb:main")]]))
+
+
 # ---------------------------------------------------------------- настройки
 
 @router.callback_query(F.data == "cb:settings")
@@ -717,7 +844,7 @@ async def cb_settings(cb: CallbackQuery) -> None:
             value = "🟢 задан" if value else "🔴 пусто"
         elif field == "low_stock_threshold":
             value = str(value)
-        elif field == "autosync_lots":
+        elif field in ("autosync_lots", "alert_on_zero"):
             value = "вкл" if value else "выкл"
         else:
             value = str(value)[:50] if value else "—"
@@ -764,7 +891,7 @@ async def fsm_setting_value(message: Message, state: FSMContext) -> None:
             return
     if field == "admin_tg_id":
         value = value.replace("@", "").strip()
-    if field == "autosync_lots":
+    if field in ("autosync_lots", "alert_on_zero"):
         value = str(value).strip().lower() in ("1", "да", "yes", "y", "true", "вкл", "on")
 
     update_settings(**{field: value})

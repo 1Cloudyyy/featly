@@ -287,6 +287,31 @@ class BackendClient:
         log.warning("get_bot: %s → %s (err=%s)", bot_id, s, err)
         return None
 
+    # --- Hub settings (панель «🏠 Hub») ---
+
+    async def get_hub_settings(self) -> dict | None:
+        s, data, err = await self._request("GET", "/settings")
+        if s == 200:
+            log.debug("get_hub_settings: %s ключей", len((data or {}).get("settings", {})))
+            return data
+        log.error("get_hub_settings → %s (err=%s)", s, err)
+        return None
+
+    async def update_hub_settings(self, values: dict[str, str]) -> dict | None:
+        s, data, err = await self._request("PATCH", "/settings", json=values)
+        if s == 200:
+            log.info("update_hub_settings: %s", ", ".join(values.keys()))
+            return data
+        log.error("update_hub_settings → %s (err=%s)", s, err)
+        return None
+
+    async def get_secrets(self) -> dict | None:
+        s, data, err = await self._request("GET", "/settings/secrets")
+        if s == 200:
+            return data
+        log.error("get_secrets → %s (err=%s)", s, err)
+        return None
+
     async def update_cookie(self, bot_id: str, cookie: str) -> bool:
         s, _, err = await self._request(
             "PATCH", f"/bots/{bot_id}/cookie", json={"roblox_cookie": cookie}

@@ -6,6 +6,21 @@
 
 ## [9.1.0] — 2026-08-16 (v3 «полировка»)
 
+### Эшо B — полная настройка hub из Telegram (коммит `…`)
+- **Hub**: таблица `app_settings` (key→value) + `GET /settings` / `PATCH /settings`
+  (auth — api-key; неизвестные ключи отклоняются), `GET /settings/secrets`
+- **Применение без рестарта**: фоновый `engine_offline_watcher` (раз в 60 с) — если движок
+  offline дольше `engine_offline_threshold`, шлёт TG-алерт (`telegram_bot_token` +
+  `telegram_alert_chat_id`; throttle 10 мин на движок) — мини-реализация H3 из аудита
+- **Панель**: новый экран «🏠 Hub» (редактирование 3 ключей через FSM `hub_value`);
+  «🔑 Подключения» — одноразовый показ `WS_SECRET`/`API_KEY` + готовый env-блок для движка
+  (Mini-ПК); главное меню дополнено
+- **«⚙️ Настройки» расширены**: `backend_ws_url`, `alert_on_zero` (вкл/выкл)
+- `backend_client`: `get_hub_settings`, `update_hub_settings`, `get_secrets`
+- hub requirements: добавлен `aiohttp` (TG-алерты)
+
+---
+
 ### Эшо A–C первой серии: X-API-Key + умная автовыдача (коммит `…`)
 - **A1–A2 — плагин авторизуется в hub**: `X-API-Key` из настроек (`settings.json → api_key`);
   при пустом ключе — лог-предупреждение (без ключа hub отвечает 403)

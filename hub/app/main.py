@@ -1,5 +1,6 @@
-"""Featly Backend — FastAPI application entry point."""
+"""Featly Hub — FastAPI application entry point."""
 
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -13,7 +14,9 @@ from app.models import Base
 from app.routes.bots import router as bots_router
 from app.routes.inventory import router as inventory_router
 from app.routes.orders import OrderStatus, pending_router, router as orders_router
+from app.routes.settings import router as hub_settings_router
 from app.routes.stats import router as stats_router
+from app.services.monitor import engine_offline_watcher
 from app.ws.engine import router as ws_router
 
 
@@ -26,9 +29,14 @@ async def lifespan(app: FastAPI):
     logger.info(f"WS_SECRET: {settings.ws_secret[:8]}...")
     logger.info(f"API_KEY: {settings.api_key[:8]}...")
     logger.info("Save these! They won't be shown again.")
-    yield
-    await engine.dispose()
-    logger.info("Featly Backend shutting down")
+    # Фоновый мониторинг движков (алерты в TG по настройкам hub)
+    monitor_task = asyncio.create_task(engine_offline_watcher())
+    try:
+        yield
+    finally:
+        monitor_task.cancel()
+        await engine.dispose()
+        logger.info("Featly Backend shutting down")
 
 
 app = FastAPI(
@@ -52,6 +60,7 @@ app.include_router(pending_router)
 app.include_router(inventory_router)
 app.include_router(bots_router)
 app.include_router(stats_router)
+app.include_router(hub_settings_router)
 
 # WebSocket
 app.include_router(ws_router)

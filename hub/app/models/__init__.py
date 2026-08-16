@@ -1,5 +1,6 @@
 """SQLAlchemy models — import all models here for Alembic autogenerate."""
 
+from app.models.app_setting import AppSetting
 from app.models.base import Base
 from app.models.bot import Bot, BotStatus
 from app.models.inventory import InventoryItem
