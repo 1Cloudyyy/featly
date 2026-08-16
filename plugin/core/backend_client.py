@@ -3,6 +3,11 @@
 Каждый вызов логируется: метод, путь, статус, длительность; ошибки — с текстом,
 чтобы сразу было понятно, где именно проблема (недоступен hub, 4xx/5xx, сеть).
 Retry — только для идемпотентных GET (не задваивает POST).
+
+ВАЖНО: HTTP выполняется в отдельном потоке через стандартный urllib
+(asyncio.to_thread) — aiohttp привязан к event loop, а funpay-universal может
+вызывать хендлеры в момент, когда loop уже закрыт («Event loop is closed»).
+Потоку loop не нужен вовсе.
 """
 
 from __future__ import annotations
@@ -11,26 +16,37 @@ import asyncio
 import json
 import logging
 import time
+import urllib.error
+import urllib.request
 from typing import Any
-
-import aiohttp
 
 from ..meta import NAME
 from ..settings import load_settings
 
 log = logging.getLogger(f"{NAME}.hub")
 
+REQUEST_TIMEOUT = 15  # сек
+
+
+def _sync_request(
+    method: str, url: str, headers: dict[str, str], payload: bytes | None
+) -> tuple[int, bytes]:
+    """Синхронный HTTP-запрос (вызывается в потоке)."""
+    req = urllib.request.Request(url, data=payload, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+            return resp.status, resp.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+    except Exception as e:
+        raise RuntimeError(f"HTTP {method} {url}: {e!r}") from e
+
 
 class BackendClient:
-    """Async HTTP client for Featly Hub REST API.
-
-    Сессия создаётся на КАЖДЫЙ запрос: funpay-universal может вызывать хендлеры
-    из разных event loop'ов — постоянная сессия тогда умирает с
-    «Event loop is closed». Запросов мало, поэтому overhead несущественен.
-    """
+    """Async HTTP client for Featly Hub REST API (urllib в потоке — без привязки к loop)."""
 
     async def close(self) -> None:
-        pass  # сессии создаются по месту; закрывать нечего
+        pass  # запросы выполняются в потоках; закрывать нечего
 
     def _url(self, path: str) -> str:
         settings = load_settings()
@@ -54,26 +70,30 @@ class BackendClient:
             headers["X-API-Key"] = api_key
         elif "X-API-Key" not in headers:
             log.warning("%s %s — api_key не задан в настройках, запрос уйдёт без ключа!", method, path)
-        if headers:
-            kwargs["headers"] = headers
+        headers.setdefault("Content-Type", "application/json")
+
+        # Тело JSON (если передано через json=...)
+        payload: bytes | None = None
+        if "json" in kwargs:
+            payload = json.dumps(kwargs.pop("json"), ensure_ascii=False).encode("utf-8")
 
         attempts = 3 if method in ("GET",) else 1
         started = time.perf_counter()
         for attempt in range(1, attempts + 1):
             try:
-                # Сессия на каждый запрос — не привязываемся к конкретному event loop
-                async with aiohttp.ClientSession() as session:
-                    async with session.request(method, url, **kwargs) as resp:
-                        body = await resp.text()
-                        ms = (time.perf_counter() - started) * 1000
-                        if resp.status in expected:
-                            data = json.loads(body) if body else None
-                            log.debug("%s %s → %s (%.1f ms)", method, path, resp.status, ms)
-                            return resp.status, data, None
-                        log.warning(
-                            "%s %s → HTTP %s (%.1f ms): %s", method, path, resp.status, ms, body[:300]
-                        )
-                        return resp.status, None, body[:300]
+                status, raw = await asyncio.to_thread(
+                    _sync_request, method, url, headers, payload
+                )
+                body = raw.decode("utf-8", errors="replace")
+                ms = (time.perf_counter() - started) * 1000
+                if status in expected:
+                    data = json.loads(body) if body else None
+                    log.debug("%s %s → %s (%.1f ms)", method, path, status, ms)
+                    return status, data, None
+                log.warning(
+                    "%s %s → HTTP %s (%.1f ms): %s", method, path, status, ms, body[:300]
+                )
+                return status, None, body[:300]
             except Exception as e:
                 ms = (time.perf_counter() - started) * 1000
                 if attempt < attempts:

@@ -6,6 +6,17 @@
 
 ## [9.1.0] — 2026-08-16 (v3 «полировка»)
 
+### Боевой деплой — фиксы по факту (коммит `…`)
+- Плагин: HTTP к hub и Roblox переведён с aiohttp на **стандартный urllib
+  в потоках** (`asyncio.to_thread`) — устранён «Event loop is closed» в среде
+  funpay-universal (хендлеры выполняются при закрытом loop)
+- Юнит hub: секрет НЕ задаётся жёстко (`Environment=FEATLY_WS_SECRET` убрана) —
+  WS_SECRET/API_KEY берутся из корневого `.env` (движок подключался с 4003 из-за
+  дефолта change-me-in-production)
+- `requirements.txt` плагина: aiohttp исключён
+
+---
+
 ### Закрытие аудита — серия 2 (коммит `…`)
 - **M1 — единый state machine**: `validate_transition()` в `order_service`;
   переходы `WAITING_TRADE/DIALOG → COMPLETED` разрешены (фактическое поведение движка);
